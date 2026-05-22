@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Montserrat:wght@700;800;900&display=swap');
+@import "tailwindcss";
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.font-inter { font-family: 'Inter', system-ui, sans-serif; }
+.font-montserrat { font-family: 'Montserrat', system-ui, sans-serif; }
+
+.card-glass {
+  background: white;
+  border-radius: 2rem;
+  border: 1px solid #f1f5f9;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.btn-primary {
+  padding: 0.75rem 1.5rem;
+  background: #2563eb;
+  color: white;
+  font-weight: 700;
+  border-radius: 1rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 6px rgba(37,99,235,0.2);
+}
+
+.btn-primary:hover { background: #1d4ed8; }
+.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.input-field {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 1rem;
+  outline: none;
+  color: #0f172a;
+  font-weight: 500;
+  font-family: inherit;
+}
+
+.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 4px; }
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+.scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+.animate-in { animation: animateIn 0.4s ease forwards; }
+@keyframes animateIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.fade-in { animation-name: fadeIn; }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.slide-in-from-left { animation-name: slideInLeft; }
+@keyframes slideInLeft { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+
+.slide-in-from-right { animation-name: slideInRight; }
+@keyframes slideInRight { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+.zoom-in-95 { animation-name: zoomIn; }
+@keyframes zoomIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+.duration-700 { animation-duration: 0.7s; }
+.duration-300 { animation-duration: 0.3s; }
