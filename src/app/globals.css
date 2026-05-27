@@ -68,3 +68,7 @@ body {
 
 .duration-700 { animation-duration: 0.7s; }
 .duration-300 { animation-duration: 0.3s; }
+
+/* Toast notification */
+.toast-enter { animation: toastIn 0.3s ease forwards; }
+@keyframes toastIn { from { opacity: 0; transform: translateY(20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }

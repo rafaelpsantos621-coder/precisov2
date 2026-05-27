@@ -31,6 +31,18 @@ export default function ImportView({ onComplete }: ImportViewProps) {
       type: file.type.includes('pdf') ? 'pdf' : 'image'
     }));
     setJobs(prev => [...prev, ...newJobs]);
+    // reset input so same file can be re-added
+    e.target.value = '';
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+    const newJobs: FileJob[] = files.map(file => ({
+      file, status: 'queued', progress: 0,
+      type: file.type.includes('pdf') ? 'pdf' : 'image'
+    }));
+    setJobs(prev => [...prev, ...newJobs]);
   };
 
   const removeJob = (index: number) => setJobs(jobs.filter((_, i) => i !== index));
@@ -78,7 +90,6 @@ export default function ImportView({ onComplete }: ImportViewProps) {
     try {
       updateJobStatus(jobIndex, 'processing', 'Carregando módulos...', 5);
 
-      // Dynamic import to avoid SSR issues
       const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs' as any);
       pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/legacy/build/pdf.worker.min.mjs`;
 
@@ -208,24 +219,36 @@ export default function ImportView({ onComplete }: ImportViewProps) {
     }
   };
 
+  const pendingCount = jobs.filter(j => j.status === 'queued').length;
+  const allDone = jobs.length > 0 && jobs.every(j => j.status === 'completed');
+
   return (
-    <div className="space-y-8 animate-in fade-in duration-700">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-700">
+      {/* Header - responsive stack on mobile */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 font-montserrat tracking-tight">Importação de Documentos</h1>
-          <p className="text-slate-500 mt-1">Carregue PDFs para extração automática via Gemini AI.</p>
+          <h1 className="text-2xl lg:text-3xl font-black text-slate-900 font-montserrat tracking-tight">Importação de Documentos</h1>
+          <p className="text-slate-500 mt-1 text-sm">Carregue PDFs para extração automática via Gemini AI.</p>
         </div>
-        <button onClick={processAll} disabled={isProcessing || jobs.length === 0 || jobs.every(j => j.status === 'completed')}
-          className="btn-primary flex items-center gap-2">
+        <button
+          onClick={processAll}
+          disabled={isProcessing || pendingCount === 0 || allDone}
+          className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto shrink-0"
+        >
           {isProcessing ? <Loader2 size={18} className="animate-spin" /> : <Play size={18} />}
           Iniciar Processamento
         </button>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-1">
-          <div onClick={() => fileInputRef.current?.click()}
-            className="card-glass border-2 border-dashed border-slate-200 p-12 flex flex-col items-center justify-center text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all group">
+      <div className="grid lg:grid-cols-3 gap-6 lg:gap-8">
+        {/* Upload area */}
+        <div className="lg:col-span-1 space-y-4">
+          <div
+            onClick={() => fileInputRef.current?.click()}
+            onDrop={handleDrop}
+            onDragOver={e => e.preventDefault()}
+            className="card-glass border-2 border-dashed border-slate-200 p-10 lg:p-12 flex flex-col items-center justify-center text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-all group"
+          >
             <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 mb-4 group-hover:scale-110 transition-transform">
               <UploadCloud size={32} />
             </div>
@@ -234,9 +257,9 @@ export default function ImportView({ onComplete }: ImportViewProps) {
             <input type="file" multiple onChange={onFileChange} ref={fileInputRef} className="hidden" accept=".pdf,image/*" />
           </div>
 
-          <div className="mt-6 p-6 bg-amber-50 rounded-2xl border border-amber-100">
+          <div className="p-5 bg-amber-50 rounded-2xl border border-amber-100">
             <div className="flex gap-3">
-              <AlertCircle className="text-amber-600 shrink-0" size={20} />
+              <AlertCircle className="text-amber-600 shrink-0 mt-0.5" size={18} />
               <div className="text-xs text-amber-800 leading-relaxed">
                 <p className="font-bold mb-1 text-[10px] uppercase tracking-wider">Lembrete de Auditoria</p>
                 Certifique-se de que as imagens do documento e do hidrômetro estejam na mesma página.
@@ -245,53 +268,60 @@ export default function ImportView({ onComplete }: ImportViewProps) {
           </div>
         </div>
 
+        {/* Queue */}
         <div className="lg:col-span-2 space-y-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between">
             <h3 className="font-bold text-slate-800">Fila de Processamento ({jobs.length})</h3>
-            <button onClick={() => setJobs([])} className="text-xs font-bold text-red-500 hover:underline">Limpar lista</button>
+            {jobs.length > 0 && (
+              <button onClick={() => setJobs([])} className="text-xs font-bold text-red-500 hover:underline">
+                Limpar lista
+              </button>
+            )}
           </div>
 
           {jobs.length === 0 ? (
-            <div className="h-64 flex flex-col items-center justify-center text-slate-400 bg-slate-100/50 rounded-3xl border border-dashed border-slate-200">
-              <FileText size={48} className="opacity-20 mb-3" />
+            <div className="h-48 lg:h-64 flex flex-col items-center justify-center text-slate-400 bg-slate-100/50 rounded-3xl border border-dashed border-slate-200">
+              <FileText size={40} className="opacity-20 mb-3" />
               <p className="text-sm">Nenhum arquivo na fila.</p>
             </div>
           ) : (
             <div className="space-y-3">
               {jobs.map((job, idx) => (
-                <div key={idx} className="card-glass p-5 animate-in slide-in-from-right duration-300">
-                  <div className="flex items-center gap-4">
-                    <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center shrink-0",
+                <div key={idx} className="card-glass p-4 lg:p-5 animate-in slide-in-from-right duration-300">
+                  <div className="flex items-center gap-3 lg:gap-4">
+                    <div className={cn("w-10 h-10 lg:w-12 lg:h-12 rounded-xl flex items-center justify-center shrink-0",
                       job.type === 'pdf' ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500')}>
-                      {job.type === 'pdf' ? <FileText size={20} /> : <ImageIcon size={20} />}
+                      {job.type === 'pdf' ? <FileText size={18} /> : <ImageIcon size={18} />}
                     </div>
-                    <div className="flex-1 overflow-hidden">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-sm font-bold text-slate-900 truncate pr-4">{job.file.name}</span>
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1 gap-2">
+                        <span className="text-sm font-bold text-slate-900 truncate">{job.file.name}</span>
+                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest shrink-0">
                           {job.statusText || (job.status === 'queued' ? 'Aguardando' : job.status === 'processing' ? `${job.progress}%` : job.status === 'completed' ? 'Concluído' : 'Erro')}
                         </span>
                       </div>
                       <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                        <div className={cn("h-full transition-all duration-300",
-                          job.status === 'completed' ? 'bg-emerald-500' : job.status === 'error' ? 'bg-red-500' : 'bg-blue-600')}
-                          style={{ width: `${job.progress}%` }} />
+                        <div
+                          className={cn("h-full transition-all duration-300",
+                            job.status === 'completed' ? 'bg-emerald-500' : job.status === 'error' ? 'bg-red-500' : 'bg-blue-600')}
+                          style={{ width: `${job.progress}%` }}
+                        />
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center shrink-0">
                       {job.status === 'completed' ? <CheckCircle2 className="text-emerald-500" size={20} /> :
                        job.status === 'error' ? <AlertCircle className="text-red-500" size={20} /> :
                        job.status === 'processing' ? <Loader2 className="text-blue-600 animate-spin" size={20} /> : (
-                        <button onClick={() => removeJob(idx)} className="p-2 hover:bg-slate-100 rounded-lg text-slate-400">
-                          <X size={18} />
+                        <button onClick={() => removeJob(idx)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400">
+                          <X size={16} />
                         </button>
                       )}
                     </div>
                   </div>
 
-                  {job.status === 'completed' && job.results && (
-                    <div className="mt-4 pt-3 border-t border-slate-50 flex gap-2 overflow-x-auto scrollbar-hide">
-                      <span className="text-[10px] font-bold text-slate-500">Extraídos:</span>
+                  {job.status === 'completed' && job.results && job.results.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-slate-50 flex gap-2 overflow-x-auto scrollbar-hide">
+                      <span className="text-[10px] font-bold text-slate-500 shrink-0">Extraídos:</span>
                       {job.results.map((r, i) => (
                         <span key={i} className="text-[9px] bg-emerald-50 text-emerald-800 px-2 py-0.5 rounded-full font-bold whitespace-nowrap">
                           {r.matricula}
