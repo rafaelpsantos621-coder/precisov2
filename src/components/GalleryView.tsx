@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchSpecimens, updateSpecimen, deleteAllSpecimens } from '@/lib/data';
 import { Specimen } from '@/types';
-import { Loader2, Inbox, LayoutGrid, Users, Building2, Clock, BadgeAlert, Trash2, Download, Sparkles, CheckCircle2 } from 'lucide-react';
-import { cn, isSpecialClient, isRetainedClient } from '@/lib/utils';
+import { Loader2, Inbox, LayoutGrid, Users, Building2, Clock, BadgeAlert, Trash2, Download, Sparkles, CheckCircle2, AlertCircle } from 'lucide-react';
+import { cn, isSpecialClient, isRetainedClient, getOccurrenceLabel } from '@/lib/utils';
 import SpecimenCard from './SpecimenCard';
 import SpecimenDetailView from './SpecimenDetailView';
 import jsPDF from 'jspdf';
@@ -21,6 +21,65 @@ interface Toast {
 
 let toastId = 0;
 
+// OC codes where the photo is of the facade — reading divergence should NOT be flagged
+const FACADE_OC_CODES = ['07', '16', '20', '007', '016', '020'];
+
+// OC codes that auto-generate observations
+const OC_OBSERVATIONS: Record<string, string> = {
+  '48': 'Baixo consumo, imóvel habitado.',
+  'OCI 48': 'Baixo consumo, imóvel habitado.',
+  '40': 'Imóvel sem caixa de correio.',
+  'OCI 40': 'Imóvel sem caixa de correio.',
+  '51': 'Baixo consumo, verificar histórico.',
+  '54': 'Evidências de vazamento no imóvel.',
+  '53': 'Imóvel em obra.',
+  '50': 'Fonte alternativa de abastecimento.',
+  '17': 'Consumo total — conta retida.',
+  '03': 'Hidrômetro submerso, leitura via cavalete.',
+  '06': 'Cúpula embaçada, leitura comprometida.',
+  '21': 'Cúpula do mostrador depredada.',
+  '14': 'Difícil acesso ao hidrômetro.',
+  '45': 'Tampa fechada, acesso impedido.',
+};
+
+function analyzeSpecimen(specimen: Specimen): Partial<Specimen> {
+  const ocCode = String(specimen.oc_code || '').trim();
+  const isFacade = FACADE_OC_CODES.includes(ocCode);
+  const leitDoc = String(specimen.leitura_documento || '').trim();
+  const leitHid = String(specimen.leitura_hidrometro || '').trim();
+
+  // Determine if there's a real reading divergence
+  const hasDivergence =
+    !isFacade &&
+    leitDoc !== '' &&
+    leitHid !== '' &&
+    leitDoc !== leitHid;
+
+  // Build observations from OC code
+  const ocObservation = OC_OBSERVATIONS[ocCode] || '';
+  const existingObs = specimen.observations || '';
+  let finalObs = existingObs;
+  if (ocObservation && !existingObs.includes(ocObservation)) {
+    finalObs = ocObservation + (existingObs ? ' ' + existingObs : '');
+  }
+
+  // Determine if retained
+  const retained = isRetainedClient(specimen);
+  // Determine if special
+  const special = isSpecialClient(specimen);
+
+  const status = hasDivergence ? 'Divergência' : 'Sucesso';
+
+  const update: Partial<Specimen> = {
+    status,
+    observations: finalObs || undefined,
+    is_retida: retained,
+    tipo_cliente: special ? 'empresa' : specimen.tipo_cliente,
+  };
+
+  return update;
+}
+
 export default function GalleryView({ query }: GalleryViewProps) {
   const [specimens, setSpecimens] = useState<Specimen[]>([]);
   const [loading, setLoading] = useState(true);
@@ -30,12 +89,13 @@ export default function GalleryView({ query }: GalleryViewProps) {
   const [isConfirmingExclusion, setIsConfirmingExclusion] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisLog, setAnalysisLog] = useState<string>('');
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const showToast = useCallback((message: string, type: Toast['type'] = 'info') => {
     const id = ++toastId;
     setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3500);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000);
   }, []);
 
   useEffect(() => { loadData(); }, []);
@@ -59,28 +119,42 @@ export default function GalleryView({ query }: GalleryViewProps) {
       showToast('Nenhum registro pendente de análise.', 'info');
       return;
     }
+
     setIsAnalyzing(true);
     setAnalysisProgress(0);
-    let completed = 0;
-    for (const specimen of pendings) {
+    setAnalysisLog('');
+
+    let successCount = 0;
+    let divergenceCount = 0;
+    let errorCount = 0;
+
+    for (let i = 0; i < pendings.length; i++) {
+      const specimen = pendings[i];
+      setAnalysisLog(`Analisando matrícula ${specimen.matricula}...`);
+
       try {
-        const isRetained = isRetainedClient(specimen);
-        const isSpecial = isSpecialClient(specimen);
-        // Only send fields that exist in the DB table
-        const updates: Partial<Specimen> = {
-          status: 'Sucesso',
-          is_retida: isRetained,
-          tipo_cliente: isSpecial ? 'empresa' : undefined
-        };
+        const updates = analyzeSpecimen(specimen);
         await updateSpecimen(specimen.id, updates);
-      } catch (err) { console.error(err); }
-      completed++;
-      setAnalysisProgress(Math.round((completed / pendings.length) * 100));
+
+        if (updates.status === 'Divergência') divergenceCount++;
+        else successCount++;
+      } catch (err) {
+        console.error(`Erro ao analisar ${specimen.matricula}:`, err);
+        errorCount++;
+      }
+
+      setAnalysisProgress(Math.round(((i + 1) / pendings.length) * 100));
+      // Small delay to avoid rate limiting
+      await new Promise(r => setTimeout(r, 150));
     }
+
     await loadData(true);
     setIsAnalyzing(false);
     setAnalysisProgress(0);
-    showToast(`${pendings.length} registro${pendings.length > 1 ? 's' : ''} analisado${pendings.length > 1 ? 's' : ''}!`, 'success');
+    setAnalysisLog('');
+
+    const msg = `${pendings.length} analisados — ✓ ${successCount} corretos, ⚠ ${divergenceCount} divergentes${errorCount > 0 ? `, ${errorCount} erros` : ''}.`;
+    showToast(msg, divergenceCount > 0 ? 'error' : 'success');
   };
 
   const filteredSpecimens = specimens.filter(s => {
@@ -122,16 +196,26 @@ export default function GalleryView({ query }: GalleryViewProps) {
     }
     const doc = new jsPDF();
     const rows = filteredSpecimens.map(s => [
-      s.matricula || '-', s.name || '-',
-      s.leitura_documento || '-', s.leitura_hidrometro || '-',
-      s.status, s.oc_code || '-'
+      s.matricula || '-',
+      s.name || '-',
+      s.leitura_documento || '-',
+      s.leitura_hidrometro || '-',
+      s.status,
+      s.oc_code ? `${s.oc_code} – ${getOccurrenceLabel(s.oc_code)}` : 'Normal',
+      s.observations || '-',
     ]);
-    doc.setFontSize(18);
-    doc.text('Relatorio - Preciso.OCR', 14, 20);
+    doc.setFontSize(16);
+    doc.text('Relatório – Preciso.OCR', 14, 20);
+    doc.setFontSize(9);
+    doc.setTextColor(120);
+    doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')}`, 14, 27);
     autoTable(doc, {
-      head: [['Matricula', 'Nome', 'Leitura Doc', 'Leitura Real', 'Status', 'OC']],
-      body: rows, startY: 30,
-      headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255] }
+      head: [['Matrícula', 'Nome', 'Leit. Doc', 'Leit. Real', 'Status', 'OC', 'Observações']],
+      body: rows,
+      startY: 32,
+      headStyles: { fillColor: [37, 99, 235], textColor: [255, 255, 255], fontSize: 8 },
+      bodyStyles: { fontSize: 7 },
+      columnStyles: { 6: { cellWidth: 40 } },
     });
     doc.save('preciso_ocr_' + Date.now() + '.pdf');
     showToast('Relatório exportado com sucesso!', 'success');
@@ -162,15 +246,36 @@ export default function GalleryView({ query }: GalleryViewProps) {
     { id: 'general' as TabType, label: 'Geral', Icon: Users },
   ];
 
+  const pendingCount = specimens.filter(s => s.status === 'Auditoria').length;
+
   return (
     <div className="space-y-6 animate-in fade-in duration-700">
-      {/* Header controls - responsive */}
+
+      {/* Analyzing progress bar */}
+      {isAnalyzing && (
+        <div className="card-glass p-5 border border-blue-100 bg-blue-50/50">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Loader2 size={16} className="text-blue-600 animate-spin" />
+              <span className="text-sm font-bold text-blue-900">{analysisLog || 'Analisando...'}</span>
+            </div>
+            <span className="text-sm font-black text-blue-600">{analysisProgress}%</span>
+          </div>
+          <div className="h-2 bg-blue-100 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-600 transition-all duration-300 rounded-full"
+              style={{ width: `${analysisProgress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Header controls */}
       <div className="flex flex-col gap-4">
-        {/* Tabs */}
         <div className="flex bg-slate-200/50 p-1 rounded-2xl overflow-x-auto scrollbar-hide w-full">
           {tabs.map(({ id, label, Icon }) => (
             <button key={id} onClick={() => setActiveTab(id)}
-              className={cn("px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap shrink-0",
+              className={cn("px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center gap-1.5 whitespace-nowrap shrink-0",
                 activeTab === id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700")}>
               <Icon size={14} /> {label}
               <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded-full">{counts[id]}</span>
@@ -178,30 +283,38 @@ export default function GalleryView({ query }: GalleryViewProps) {
           ))}
         </div>
 
-        {/* Action buttons */}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <button
             onClick={handleStartAnalysis}
-            disabled={isAnalyzing || specimens.filter(s => s.status === 'Auditoria').length === 0}
-            className={cn("flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg",
-              isAnalyzing ? "bg-blue-100 text-blue-600 cursor-not-allowed"
-                : "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-blue-600/20")}>
+            disabled={isAnalyzing || pendingCount === 0}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg",
+              isAnalyzing || pendingCount === 0
+                ? "bg-slate-200 text-slate-400 cursor-not-allowed shadow-none"
+                : "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-blue-600/20 hover:opacity-90"
+            )}>
             {isAnalyzing
               ? <><Loader2 size={16} className="animate-spin" /><span>{analysisProgress}%</span></>
-              : <><Sparkles size={16} /><span>ANALISAR</span></>}
+              : <><Sparkles size={16} /><span>ANALISAR {pendingCount > 0 ? `(${pendingCount})` : ''}</span></>}
           </button>
+
           <button
             onClick={exportToPDF}
             disabled={filteredSpecimens.length === 0}
             className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 text-sm font-bold shadow-lg shadow-blue-600/20 transition-all">
             <Download size={16} /><span>PDF</span>
           </button>
+
           <button
             onClick={() => setIsConfirmingExclusion(true)}
             disabled={specimens.length === 0}
             className="flex items-center gap-2 px-4 py-2.5 bg-white border border-red-200 text-red-600 rounded-xl hover:bg-red-50 disabled:opacity-50 text-sm font-bold transition-all">
             <Trash2 size={16} /><span>LIMPAR</span>
           </button>
+
+          {pendingCount === 0 && specimens.length > 0 && (
+            <span className="text-xs text-slate-400 font-medium">Todos os registros já foram analisados.</span>
+          )}
         </div>
       </div>
 
@@ -238,7 +351,9 @@ export default function GalleryView({ query }: GalleryViewProps) {
               <Trash2 size={32} />
             </div>
             <h3 className="text-xl font-black text-slate-900 text-center mb-2">Excluir Tudo?</h3>
-            <p className="text-slate-500 text-center text-sm mb-8">Esta ação é irreversível e removerá todos os {specimens.length} registros.</p>
+            <p className="text-slate-500 text-center text-sm mb-8">
+              Esta ação é irreversível e removerá todos os {specimens.length} registros.
+            </p>
             <div className="flex flex-col gap-3">
               <button onClick={async () => {
                 setIsConfirmingExclusion(false);
@@ -268,9 +383,9 @@ export default function GalleryView({ query }: GalleryViewProps) {
           <div key={t.id} className={cn(
             "toast-enter flex items-center gap-3 px-5 py-4 rounded-2xl shadow-2xl text-sm font-bold max-w-xs sm:max-w-sm pointer-events-auto",
             t.type === 'success' ? 'bg-emerald-600 text-white' :
-            t.type === 'error' ? 'bg-red-600 text-white' : 'bg-slate-900 text-white'
+            t.type === 'error' ? 'bg-orange-600 text-white' : 'bg-slate-900 text-white'
           )}>
-            {t.type === 'success' ? <CheckCircle2 size={18} /> : t.type === 'error' ? <BadgeAlert size={18} /> : <Sparkles size={18} />}
+            {t.type === 'success' ? <CheckCircle2 size={18} /> : t.type === 'error' ? <AlertCircle size={18} /> : <Sparkles size={18} />}
             {t.message}
           </div>
         ))}
