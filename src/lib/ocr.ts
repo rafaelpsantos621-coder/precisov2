@@ -34,7 +34,7 @@ export const extractDataFromImage = async (base64Image: string, maxRetries = 5) 
       `;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.0-flash",
+        model: "gemini-2.0-flash-lite",
         contents: [{
           parts: [
             { inlineData: { mimeType, data: base64Data } },
