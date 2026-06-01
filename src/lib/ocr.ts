@@ -1,31 +1,40 @@
-'use client';
-
 const GEMINI_API_KEY = process.env.NEXT_PUBLIC_GEMINI_API_KEY || '';
 
 export const extractDataFromImage = async (base64Image: string, maxRetries = 5) => {
   if (!GEMINI_API_KEY) {
-    throw new Error("Gemini API Key não configurada. Adicione NEXT_PUBLIC_GEMINI_API_KEY no .env.local");
+    throw new Error("Gemini API Key não configurada.");
   }
 
   const mimeTypeMatch = base64Image.match(/^data:(image\/[a-zA-Z+]+);base64,/);
   const mimeType = mimeTypeMatch ? mimeTypeMatch[1] : "image/png";
   const base64Data = base64Image.includes('base64,') ? base64Image.split('base64,')[1] : base64Image;
 
-  const systemInstruction = `Você é o assistente OCR de elite do sistema "Preciso OCR".
-    Analise imagens de documentos de saneamento e extraia informações com precisão.
+  const prompt = `Você é o assistente OCR do sistema "Preciso OCR".
+Analise esta imagem de documento de saneamento e extraia informações.
 
-    REGRAS:
-    - CATEGORIA ESPECIAL: Se cliente for Empresa (LTDA, S.A.), Prefeitura, Escola ou similar.
-    - CONTA RETIDA: Se tiver "Acréscimo" ou "Decréscimo", ou OC 17, 51, 53, 50, 54.
-    - OC 16, 07, 20: Foto de fachada. NÃO marcar divergência de leitura.
-    - OCI 48/48: Baixo consumo. observations = "baixo consumo, imóvel habitado"
-    - OCI 40: observations = "imóvel sem caixa de correio"
+REGRAS:
+- CATEGORIA ESPECIAL: Se cliente for Empresa (LTDA, S.A.), Prefeitura, Escola ou similar.
+- CONTA RETIDA: Se tiver "Acréscimo" ou "Decréscimo", ou OC 17, 51, 53, 50, 54.
+- OC 16, 07, 20: Foto de fachada. NÃO marcar divergência de leitura.
+- OCI 48/48: Baixo consumo. observations = "baixo consumo, imóvel habitado"
+- OCI 40: observations = "imóvel sem caixa de correio"
 
-    Para cada registro retorne JSON com:
-    - matricula, nome_cliente, leitura_documento, leitura_hidrometro
-    - oc_code, tipo_cliente, observations
-    - dataBoundingBox: [ymin, xmin, ymax, xmax] (0-1000)
-    - meterBoundingBox: [ymin, xmin, ymax, xmax] da foto do hidrômetro`;
+Retorne APENAS um JSON válido com a estrutura:
+{
+  "extractions": [
+    {
+      "matricula": "string",
+      "nome_cliente": "string",
+      "leitura_documento": "string",
+      "leitura_hidrometro": "string",
+      "oc_code": "string",
+      "tipo_cliente": "string",
+      "observations": "string",
+      "dataBoundingBox": [0, 0, 1000, 1000],
+      "meterBoundingBox": [0, 0, 1000, 1000]
+    }
+  ]
+}`;
 
   let lastError: any = null;
 
@@ -37,16 +46,15 @@ export const extractDataFromImage = async (base64Image: string, maxRetries = 5) 
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemInstruction }] },
             contents: [{
               parts: [
                 { inline_data: { mime_type: mimeType, data: base64Data } },
-                { text: "Analise e extraia todos os registros presentes nesta página seguindo o esquema JSON." }
+                { text: prompt }
               ]
             }],
             generationConfig: {
-              response_mime_type: "application/json",
               temperature: 0.1,
+              maxOutputTokens: 8192,
             }
           })
         }
@@ -59,7 +67,8 @@ export const extractDataFromImage = async (base64Image: string, maxRetries = 5) 
 
       const data = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-      return JSON.parse(text.replace(/```json|```/g, '').trim());
+      const clean = text.replace(/```json|```/g, '').trim();
+      return JSON.parse(clean);
 
     } catch (e: any) {
       lastError = e;
