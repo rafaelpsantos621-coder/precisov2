@@ -177,7 +177,7 @@ export default function DashboardView() {
                     </div>
                   </td>
                   <td className="py-4 text-right text-[10px] font-bold text-slate-400">
-                    {new Date(s.created_at).toLocaleDateString('pt-BR')}
+                    {s.created_at ? new Date(s.created_at).toLocaleDateString('pt-BR') : '-'}
                   </td>
                 </tr>
               ))}
