@@ -1,4 +1,5 @@
-'use client';
+// build update
+// 'use client';
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
