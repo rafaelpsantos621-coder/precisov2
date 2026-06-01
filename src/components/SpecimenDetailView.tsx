@@ -37,10 +37,10 @@ export default function SpecimenDetailView({ specimen, onClose, onUpdate, onNext
       // Only send fields that exist in the DB — no `categoria`
       await updateSpecimen(specimen.id, {
         status: formData.status,
-        observations: formData.observations || null,
-        leitura_documento: formData.leitura_documento || null,
-        leitura_hidrometro: formData.leitura_hidrometro || null,
-        oc_code: formData.oc_code || null,
+        observations: formData.observations || undefined,
+leitura_documento: formData.leitura_documento || undefined,
+leitura_hidrometro: formData.leitura_hidrometro || undefined,
+oc_code: formData.oc_code || undefined,
       });
       onUpdate();
       setSavedOk(true);
