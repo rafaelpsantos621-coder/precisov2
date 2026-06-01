@@ -1,4 +1,4 @@
-// build update
+'use client';
 
 
 import { useState, useEffect } from "react";
