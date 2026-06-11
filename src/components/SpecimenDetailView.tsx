@@ -16,13 +16,18 @@ interface Props {
 
 export default function SpecimenDetailView({ specimen, onClose, onUpdate, onNext, onPrev }: Props) {
   const [isEditing, setIsEditing] = useState(false);
+  
+  // Estado do Formulário expandido para incluir Nome e Matrícula (Opção A)
   const [formData, setFormData] = useState({
+    name: specimen.name || '',
+    matricula: specimen.matricula || '',
     leitura_documento: specimen.leitura_documento || '',
     leitura_hidrometro: specimen.leitura_hidrometro || '',
     oc_code: specimen.oc_code || '',
     observations: specimen.observations || '',
     status: specimen.status as ValidationStatus,
   });
+  
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedOk, setSavedOk] = useState(false);
@@ -34,16 +39,21 @@ export default function SpecimenDetailView({ specimen, onClose, onUpdate, onNext
     setSaveError(null);
     setSavedOk(false);
     try {
-      // Only send fields that exist in the DB — no `categoria`
+      // Envia todas as correções manuais para o banco de dados
       await updateSpecimen(specimen.id, {
+        name: formData.name || undefined,
+        matricula: formData.matricula || undefined,
         status: formData.status,
         observations: formData.observations || undefined,
-leitura_documento: formData.leitura_documento || undefined,
-leitura_hidrometro: formData.leitura_hidrometro || undefined,
-oc_code: formData.oc_code || undefined,
+        leitura_documento: formData.leitura_documento || undefined,
+        leitura_hidrometro: formData.leitura_hidrometro || undefined,
+        oc_code: formData.oc_code || undefined,
       });
+      
       onUpdate();
       setSavedOk(true);
+      setIsEditing(false);
+      
       setTimeout(() => {
         if (onNext) onNext(); else onClose();
       }, 600);
@@ -91,30 +101,58 @@ oc_code: formData.oc_code || undefined,
       <div className="bg-white w-full max-w-6xl h-[95vh] sm:max-h-[95vh] sm:rounded-[3rem] rounded-t-[2.5rem] shadow-2xl relative z-10 flex flex-col overflow-hidden">
 
         {/* Header */}
-        <header className="p-4 lg:p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0 gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center text-slate-400 border border-slate-200 shrink-0">
+        <header className="p-4 lg:p-8 border-b border-slate-200/60 flex items-center justify-between bg-slate-50/50 shrink-0 gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="w-10 h-10 bg-white rounded-2xl flex items-center justify-center text-slate-400 border border-slate-200 shrink-0 shadow-sm">
               <Info size={20} />
             </div>
-            <div className="min-w-0">
-              <h2 className="text-base lg:text-xl font-bold text-slate-900 truncate">{specimen.name || 'Cliente Sem Nome'}</h2>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">Matrícula {specimen.matricula}</span>
-                <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase",
-                  formData.status === 'Sucesso' ? 'bg-emerald-100 text-emerald-700' :
-                  formData.status === 'Divergência' ? 'bg-orange-100 text-orange-700' :
-                  formData.status === 'Erro' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+            <div className="min-w-0 flex-1">
+              {/* Nome Editável */}
+              {isEditing ? (
+                <input 
+                  type="text"
+                  value={formData.name}
+                  onChange={e => setFormData({ ...formData, name: e.target.value })}
+                  className="text-base lg:text-xl font-bold text-slate-900 border-b-2 border-blue-500 bg-transparent outline-none max-w-md w-full py-0.5"
+                  placeholder="Nome do Cliente"
+                />
+              ) : (
+                <h2 className="text-base lg:text-xl font-bold text-slate-900 truncate font-montserrat">{formData.name || 'Cliente Sem Nome'}</h2>
+              )}
+              
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                {/* Matrícula Editável */}
+                {isEditing ? (
+                  <div className="flex items-center gap-1">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">Matrícula:</span>
+                    <input 
+                      type="text"
+                      value={formData.matricula}
+                      onChange={e => setFormData({ ...formData, matricula: e.target.value })}
+                      className="text-[10px] font-black text-blue-600 border-b border-blue-500 bg-transparent outline-none w-20 py-0"
+                    />
+                  </div>
+                ) : (
+                  <span className="text-[10px] font-black uppercase tracking-widest text-blue-600">Matrícula {formData.matricula || '—'}</span>
+                )}
+                
+                <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border",
+                  formData.status === 'Sucesso' ? 'bg-emerald-50 text-emerald-700 border-emerald-200/40' :
+                  formData.status === 'Divergência' ? 'bg-orange-50 text-orange-700 border-orange-200/40' :
+                  formData.status === 'Erro' ? 'bg-red-50 text-red-700 border-red-200/40' : 'bg-blue-50 text-blue-700 border-blue-200/40'
                 )}>{formData.status}</span>
+                
                 {isDivergent && (
-                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-orange-100 text-orange-600">
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-orange-50 text-orange-600 border border-orange-100">
                     ⚠ Leituras divergem
                   </span>
                 )}
               </div>
             </div>
           </div>
+          
           <div className="flex items-center gap-2 shrink-0">
-            <div className="flex items-center bg-slate-200 rounded-2xl p-1">
+            <div className="flex items-center bg-slate-100 border border-slate-200/60 rounded-2xl p-1">
               <button onClick={onPrev} disabled={!onPrev} className="p-1.5 text-slate-600 disabled:opacity-30 transition-opacity"><ChevronLeft size={18} /></button>
               <button onClick={onNext} disabled={!onNext} className="p-1.5 text-slate-600 disabled:opacity-30 transition-opacity"><ChevronRight size={18} /></button>
             </div>
@@ -141,7 +179,7 @@ oc_code: formData.oc_code || undefined,
         <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
 
           {/* Left: Images */}
-          <div className={cn("flex-1 bg-slate-100 overflow-y-auto p-4 lg:p-8 space-y-6",
+          <div className={cn("flex-1 bg-slate-50 overflow-y-auto p-4 lg:p-8 space-y-6 custom-scrollbar",
             activePanel !== 'images' && "hidden lg:block")}>
             <section>
               <div className="text-center mb-3">
@@ -160,7 +198,7 @@ oc_code: formData.oc_code || undefined,
                   </div>
                 )}
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 flex items-center justify-center transition-all">
-                  <div className="bg-white/90 p-3 rounded-2xl opacity-0 group-hover:opacity-100 flex items-center gap-2">
+                  <div className="bg-white/90 p-3 rounded-2xl opacity-0 group-hover:opacity-100 flex items-center gap-2 shadow-md">
                     <Maximize2 size={14} className="text-blue-600" />
                     <span className="text-[10px] font-black text-slate-900 uppercase">Ampliar</span>
                   </div>
@@ -172,14 +210,14 @@ oc_code: formData.oc_code || undefined,
               <div className="text-center mb-3">
                 <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Foto do Hidrômetro</h3>
                 {formData.leitura_hidrometro && (
-                  <span className={cn("text-[10px] font-bold px-3 py-1 rounded-full",
-                    isDivergent ? "bg-orange-100 text-orange-700" : "bg-emerald-100 text-emerald-700")}>
+                  <span className={cn("text-[10px] font-bold px-3 py-1 rounded-full border",
+                    isDivergent ? "bg-orange-50 text-orange-700 border-orange-100" : "bg-emerald-50 text-emerald-700 border-emerald-100")}>
                     Leitura Visual: {formData.leitura_hidrometro}
                   </span>
                 )}
               </div>
               <div onClick={() => specimen.meter_image_url && setZoomedImage(specimen.meter_image_url)}
-                className="group relative rounded-[2.5rem] overflow-hidden border-4 border-white shadow-2xl bg-slate-200 min-h-[140px] cursor-zoom-in">
+                className="group relative rounded-[2.5rem] overflow-hidden border-4 border-white shadow-xl bg-slate-200 min-h-[140px] cursor-zoom-in">
                 {specimen.meter_image_url ? (
                   <img src={getProxiedUrl(specimen.meter_image_url)} alt="Hidrômetro" referrerPolicy="no-referrer" className="w-full h-auto object-contain" />
                 ) : (
@@ -196,15 +234,15 @@ oc_code: formData.oc_code || undefined,
           <div className={cn("w-full lg:w-[420px] bg-white border-t lg:border-t-0 lg:border-l border-slate-100 flex flex-col",
             activePanel !== 'data' && "hidden lg:flex")}>
 
-            <div className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-5">
+            <div className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-5 custom-scrollbar">
 
               {/* Leituras */}
-              <div className="p-5 bg-slate-50 rounded-3xl space-y-4">
+              <div className="p-5 bg-slate-50 rounded-3xl space-y-4 border border-slate-100 shadow-sm">
                 <div className="flex items-center justify-between">
                   <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Análise Técnica</h4>
                   <button onClick={() => setIsEditing(!isEditing)}
-                    className={cn("flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all",
-                      isEditing ? "bg-blue-600 text-white" : "bg-white text-slate-600 border border-slate-200")}>
+                    className={cn("flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase transition-all shadow-sm",
+                      isEditing ? "bg-blue-600 text-white border border-blue-600" : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50")}>
                     <Edit2 size={10} /> {isEditing ? 'Visualizar' : 'Editar'}
                   </button>
                 </div>
@@ -236,16 +274,16 @@ oc_code: formData.oc_code || undefined,
                 </div>
 
                 {isDivergent && (
-                  <div className="flex items-center gap-2 p-3 bg-orange-50 rounded-2xl border border-orange-100">
-                    <AlertCircle size={16} className="text-orange-600 shrink-0" />
-                    <span className="text-xs font-bold text-orange-700">Divergência detectada entre leitura do documento e foto do hidrômetro.</span>
+                  <div className="flex items-start gap-2 p-3 bg-orange-50 rounded-2xl border border-orange-100">
+                    <AlertCircle size={16} className="text-orange-600 shrink-0 mt-0.5" />
+                    <span className="text-xs font-bold text-orange-700 leading-snug">Divergência detectada entre leitura do documento e foto do hidrômetro.</span>
                   </div>
                 )}
 
                 {/* OC */}
                 <div className="pt-3 border-t border-slate-200">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Ocorrência</label>
-                  <div className="flex items-start gap-3 mt-2 p-3 bg-white border border-slate-200 rounded-2xl">
+                  <div className="flex items-start gap-3 mt-2 p-3 bg-white border border-slate-200/80 rounded-2xl shadow-sm">
                     {isEditing ? (
                       <input type="text" value={formData.oc_code}
                         onChange={e => setFormData({ ...formData, oc_code: e.target.value })}
@@ -256,10 +294,10 @@ oc_code: formData.oc_code || undefined,
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-black text-slate-900">{getOccurrenceLabel(formData.oc_code)}</p>
-                      <p className="text-[9px] text-slate-500 mt-0.5 leading-relaxed">{getOccurrenceDescription(formData.oc_code)}</p>
+                      <p className="text-xs font-black text-slate-900 truncate">{getOccurrenceLabel(formData.oc_code)}</p>
+                      <p className="text-[9px] text-slate-500 mt-0.5">{getOccurrenceDescription(formData.oc_code)}</p>
                       {hasOcObservation && (
-                        <span className="inline-block mt-1 text-[9px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-bold">
+                        <span className="inline-block mt-1.5 text-[9px] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-bold">
                           Ocorrência registrada
                         </span>
                       )}
@@ -271,13 +309,13 @@ oc_code: formData.oc_code || undefined,
               {/* Observations */}
               <div>
                 <label className="text-xs font-bold text-slate-700 flex items-center gap-2 mb-2">
-                  <MessageSquare size={14} /> Observações
+                  <MessageSquare size={14} className="text-slate-400" /> Observações
                 </label>
                 <textarea
                   value={formData.observations}
                   onChange={e => setFormData({ ...formData, observations: e.target.value })}
                   placeholder="Anotações sobre a divergência ou ocorrência..."
-                  className="w-full h-24 p-4 bg-slate-50 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500/10 resize-none border-none outline-none"
+                  className="w-full h-24 p-4 bg-slate-50 rounded-2xl text-sm focus:bg-white focus:ring-4 focus:ring-blue-500/5 resize-none border border-transparent focus:border-slate-200 outline-none font-medium text-slate-800 transition-all placeholder-slate-400"
                 />
               </div>
 
@@ -289,8 +327,8 @@ oc_code: formData.oc_code || undefined,
                     <button key={s} onClick={() => setFormData({ ...formData, status: s })}
                       className={cn("flex items-center justify-center gap-2 py-3 rounded-xl border-2 font-bold text-xs transition-all",
                         formData.status === s
-                          ? s === 'Sucesso' ? "bg-emerald-500 border-emerald-500 text-white" : "bg-orange-500 border-orange-500 text-white"
-                          : "border-slate-100 text-slate-400 hover:border-slate-200")}>
+                          ? s === 'Sucesso' ? "bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/10" : "bg-orange-500 border-orange-500 text-white shadow-lg shadow-orange-500/10"
+                          : "border-slate-100 text-slate-400 hover:border-slate-200 bg-white")}>
                       {s === 'Sucesso' ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
                       {s === 'Sucesso' ? 'Correto' : 'Divergente'}
                     </button>
@@ -298,7 +336,7 @@ oc_code: formData.oc_code || undefined,
                 </div>
                 <button onClick={() => setFormData({ ...formData, status: 'Erro' })}
                   className={cn("w-full mt-2 flex items-center justify-center gap-2 py-3 rounded-xl border-2 font-bold text-xs transition-all",
-                    formData.status === 'Erro' ? "bg-red-500 border-red-500 text-white" : "border-slate-100 text-slate-400 hover:border-red-200")}>
+                    formData.status === 'Erro' ? "bg-red-500 border-red-500 text-white shadow-lg shadow-red-500/10" : "border-slate-100 text-slate-400 hover:border-red-200 bg-white")}>
                   Imagem Inválida / Erro
                 </button>
               </div>
@@ -312,13 +350,13 @@ oc_code: formData.oc_code || undefined,
             </div>
 
             {/* Save button */}
-            <div className="p-4 lg:p-8 border-t border-slate-100 shrink-0">
+            <div className="p-4 lg:p-8 border-t border-slate-100 shrink-0 bg-white">
               <button onClick={handleSave} disabled={isSaving || savedOk}
                 className={cn("w-full btn-primary flex items-center justify-center gap-2 transition-all",
-                  savedOk && "bg-emerald-600 hover:bg-emerald-600")}>
+                  savedOk && "bg-emerald-600 hover:bg-emerald-600 shadow-emerald-600/10")}>
                 {isSaving ? <Loader2 className="animate-spin" size={18} /> :
-                 savedOk ? <><CheckCircle2 size={18} /> Salvo!</> :
-                 <><Save size={18} /> Finalizar Verificação</>}
+                  savedOk ? <><CheckCircle2 size={18} /> Salvo!</> :
+                  <><Save size={18} /> Finalizar Verificação</>}
               </button>
             </div>
           </div>

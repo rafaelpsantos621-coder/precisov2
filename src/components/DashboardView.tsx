@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { fetchSpecimens } from '@/lib/data';
+import { fetchSpecimens, updateSpecimen } from '@/lib/data';
 import { Specimen } from '@/types';
-import { TrendingUp, Database, CheckCircle2, AlertCircle, Activity, LayoutGrid, Loader2, BadgeAlert } from 'lucide-react';
+import { TrendingUp, Database, CheckCircle2, AlertCircle, Activity, LayoutGrid, Loader2, BadgeAlert, CheckSquare, Square, Check, AlertTriangle, HelpCircle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { isSpecialClient, isRetainedClient, cn } from '@/lib/utils';
 
@@ -13,22 +13,64 @@ export default function DashboardView() {
   const [error, setError] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
 
-  // Garante a montagem correta no client-side para evitar erros de hidratação de data
+  // Estados para as AÇÕES EM LOTE
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [isUpdatingBulk, setIsUpdatingBulk] = useState(false);
+
   useEffect(() => {
     setIsMounted(true);
     loadData();
   }, []);
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const res = await fetchSpecimens();
       setData(res || []);
+      setSelectedIds([]); // Limpa a seleção ao recarregar
     } catch (err: any) {
       setError(err.message || 'Erro ao carregar dados.');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
+    }
+  };
+
+  // Pega os 5 registros mais recentes que estão na tabela
+  const recentData = data.slice(0, 5);
+
+  // Funções de Seleção
+  const toggleSelectAll = () => {
+    if (selectedIds.length === recentData.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(recentData.map(s => s.id));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter(item => item !== id));
+    } else {
+      setSelectedIds([...selectedIds, id]);
+    }
+  };
+
+  // Executa a atualização de status para todos os selecionados
+  const handleBulkStatusUpdate = async (newStatus: 'Sucesso' | 'Divergência' | 'Auditoria') => {
+    if (selectedIds.length === 0) return;
+    setIsUpdatingBulk(true);
+    try {
+      // Executa as atualizações em paralelo no banco de dados
+      await Promise.all(
+        selectedIds.map(id => updateSpecimen(id, { status: newStatus }))
+      );
+      await loadData(true); // Atualiza os dados silenciosamente na tela
+      alert(`${selectedIds.length} registros atualizados para "${newStatus}" com sucesso!`);
+    } catch (err: any) {
+      alert('Erro ao atualizar registros em lote: ' + err.message);
+    } finally {
+      setIsUpdatingBulk(false);
     }
   };
 
@@ -63,13 +105,14 @@ export default function DashboardView() {
   );
 
   if (error) return (
-    <div className="h-[60vh] flex flex-col items-center justify-center p-8 text-center bg-red-50 rounded-3xl border border-red-100 animated animate-in">
+    <div className="h-[60vh] flex flex-col items-center justify-center p-8 text-center bg-red-50 rounded-3xl border border-red-100">
       <div className="w-16 h-16 bg-red-100 text-red-600 rounded-2xl flex items-center justify-center mb-4 shadow-sm">
         <BadgeAlert size={32} />
       </div>
       <h3 className="text-xl font-bold text-red-900 mb-2 font-montserrat">Erro ao Carregar</h3>
       <p className="text-red-700 max-w-md mx-auto mb-6 text-sm">{error}</p>
-      <button onClick={loadData} className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-md shadow-red-600/10">
+      //  COMO DEVE FICAR:
+<button onClick={() => loadData()} className="px-6 py-3 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-all shadow-md">
         Tentar Novamente
       </button>
     </div>
@@ -82,7 +125,7 @@ export default function DashboardView() {
         <p className="text-sm text-slate-500 mt-1">Visão analítica do processamento e auditoria de faturas.</p>
       </div>
 
-      {/* Grid de Cards de Estatística */}
+      {/* Grid de Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard title="Total Processado" value={stats.total} icon={Database} color="blue" trend="+12% este mês" />
         <StatCard title="Verificados" value={stats.success} icon={CheckCircle2} color="emerald" trend={`${stats.total > 0 ? Math.round(stats.success / stats.total * 100) : 0}% Precisão`} />
@@ -147,15 +190,52 @@ export default function DashboardView() {
         </div>
       </div>
 
-      {/* Tabela de Extrações Recentes */}
-      <div className="card-glass p-4 sm:p-6 lg:p-8">
-        <div className="mb-6">
+      {/* Tabela de Extrações Recentes com Ações em Lote */}
+      <div className="card-glass p-4 sm:p-6 lg:p-8 relative">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <h3 className="font-bold text-slate-800 font-montserrat text-base">Extrações Recentes</h3>
+          
+          {/* MENU DE AÇÕES EM LOTE (Aparece dinamicamente ao selecionar itens) */}
+          <div className={cn(
+            "flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-2xl transition-all duration-300 shadow-xl border border-slate-800 text-xs",
+            selectedIds.length > 0 ? "opacity-100 translate-y-0 pointer-events-auto" : "opacity-0 translate-y-2 pointer-events-none hidden sm:flex"
+          )}>
+            <span className="font-bold text-slate-400 mr-2"><b className="text-blue-400">{selectedIds.length}</b> selecionados:</span>
+            <button 
+              disabled={isUpdatingBulk} onClick={() => handleBulkStatusUpdate('Sucesso')}
+              className="flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 px-2.5 py-1.5 rounded-xl transition-colors font-black text-[10px]"
+            >
+              <Check size={12} /> SUCESSO
+            </button>
+            <button 
+              disabled={isUpdatingBulk} onClick={() => handleBulkStatusUpdate('Divergência')}
+              className="flex items-center gap-1 bg-amber-600 hover:bg-amber-700 px-2.5 py-1.5 rounded-xl transition-colors font-black text-[10px]"
+            >
+              <AlertTriangle size={12} /> DIVERGENTE
+            </button>
+            <button 
+              disabled={isUpdatingBulk} onClick={() => handleBulkStatusUpdate('Auditoria')}
+              className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 px-2.5 py-1.5 rounded-xl transition-colors font-black text-[10px]"
+            >
+              <HelpCircle size={12} /> AUDITORIA
+            </button>
+          </div>
         </div>
+
         <div className="overflow-x-auto custom-scrollbar">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-100">
+                {/* Checkbox para selecionar tudo */}
+                <th className="pb-4 w-10">
+                  <button onClick={toggleSelectAll} className="text-slate-400 hover:text-blue-600 transition-colors focus:outline-none">
+                    {selectedIds.length === recentData.length && recentData.length > 0 ? (
+                      <CheckSquare size={18} className="text-blue-600" />
+                    ) : (
+                      <Square size={18} />
+                    )}
+                  </button>
+                </th>
                 <th className="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-4">Matrícula</th>
                 <th className="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-4">Cliente</th>
                 <th className="text-[10px] font-black text-slate-400 uppercase tracking-widest pb-4">OC</th>
@@ -164,33 +244,46 @@ export default function DashboardView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100/50">
-              {data.slice(0, 5).map(s => (
-                <tr key={s.id} className="hover:bg-slate-50/60 transition-colors group">
-                  <td className="py-4 font-black text-slate-900 text-xs">#{s.matricula}</td>
-                  <td className="py-4 font-bold text-slate-600 text-xs truncate max-w-[180px] lg:max-w-[240px]">{s.name}</td>
-                  <td className="py-4">
-                    <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[10px] font-bold group-hover:bg-white border border-transparent group-hover:border-slate-200 transition-colors">
-                      OC {s.oc_code || '00'}
-                    </span>
-                  </td>
-                  <td className="py-4">
-                    <div className={cn("flex items-center gap-1.5 text-[10px] font-bold",
-                      s.status === 'Sucesso' ? 'text-emerald-600' :
-                      s.status === 'Divergência' ? 'text-orange-600' : 'text-blue-600')}>
-                      <span className={cn("w-1.5 h-1.5 rounded-full",
-                        s.status === 'Sucesso' ? 'bg-emerald-500' :
-                        s.status === 'Divergência' ? 'bg-orange-500' : 'bg-blue-500')} />
-                      {s.status}
-                    </div>
-                  </td>
-                  <td className="py-4 text-right text-[10px] font-bold text-slate-400">
-                    {s.created_at ? new Date(s.created_at).toLocaleDateString('pt-BR') : '-'}
-                  </td>
-                </tr>
-              ))}
+              {recentData.map(s => {
+                const isSelected = selectedIds.includes(s.id);
+                return (
+                  <tr key={s.id} className={cn("hover:bg-slate-50/60 transition-colors group", isSelected && "bg-blue-50/30 hover:bg-blue-50/40")}>
+                    {/* Checkbox Individual */}
+                    <td className="py-4">
+                      <button onClick={() => toggleSelectOne(s.id)} className="text-slate-300 group-hover:text-slate-400 hover:text-blue-600 transition-colors focus:outline-none">
+                        {isSelected ? (
+                          <CheckSquare size={18} className="text-blue-600" />
+                        ) : (
+                          <Square size={18} />
+                        )}
+                      </button>
+                    </td>
+                    <td className="py-4 font-black text-slate-900 text-xs">#{s.matricula}</td>
+                    <td className="py-4 font-bold text-slate-600 text-xs truncate max-w-[180px] lg:max-w-[240px]">{s.name}</td>
+                    <td className="py-4">
+                      <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded-md text-[10px] font-bold group-hover:bg-white border border-transparent group-hover:border-slate-200 transition-colors">
+                        OC {s.oc_code || '00'}
+                      </span>
+                    </td>
+                    <td className="py-4">
+                      <div className={cn("flex items-center gap-1.5 text-[10px] font-bold",
+                        s.status === 'Sucesso' ? 'text-emerald-600' :
+                        s.status === 'Divergência' ? 'text-orange-600' : 'text-blue-600')}>
+                        <span className={cn("w-1.5 h-1.5 rounded-full",
+                          s.status === 'Sucesso' ? 'bg-emerald-500' :
+                          s.status === 'Divergência' ? 'bg-orange-500' : 'bg-blue-500')} />
+                        {s.status}
+                      </div>
+                    </td>
+                    <td className="py-4 text-right text-[10px] font-bold text-slate-400">
+                      {s.created_at ? new Date(s.created_at).toLocaleDateString('pt-BR') : '-'}
+                    </td>
+                  </tr>
+                );
+              })}
               {data.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-sm text-slate-400 font-medium">
+                  <td colSpan={6} className="py-8 text-center text-sm text-slate-400 font-medium">
                     Nenhum registro encontrado.
                   </td>
                 </tr>
@@ -203,7 +296,6 @@ export default function DashboardView() {
   );
 }
 
-// Interface tipada para evitar erros no modo estrito do tsconfig
 interface StatCardProps {
   title: string;
   value: number;
@@ -213,7 +305,6 @@ interface StatCardProps {
 }
 
 function StatCard({ title, value, icon: Icon, color, trend }: StatCardProps) {
-  // Configuração isolada de cores para evitar conflito com a classe card-glass
   const colorMap = {
     blue: { bg: 'bg-blue-50/60', iconBg: 'bg-blue-100 text-blue-600', border: 'hover:border-blue-200' },
     emerald: { bg: 'bg-emerald-50/60', iconBg: 'bg-emerald-100 text-emerald-600', border: 'hover:border-emerald-200' },

@@ -14,19 +14,25 @@ export default function SpecimenCard({ specimen, onClick }: SpecimenCardProps) {
   // Estado para controlar o esqueleto de carregamento da imagem
   const [imageLoading, setImageLoading] = useState(true);
 
-  const statusStyles = {
+  // Mapeamento de estilos de status atualizado incluindo suporte para 'Erro'
+  const statusStyles: Record<string, string> = {
     'Sucesso': 'bg-emerald-50 text-emerald-700 border-emerald-200/60',
     'Divergência': 'bg-orange-50 text-orange-700 border-orange-200/60',
-    'Auditoria': 'bg-blue-50 text-blue-700 border-blue-200/60'
-  }[specimen.status] || 'bg-slate-50 text-slate-700 border-slate-200';
+    'Auditoria': 'bg-blue-50 text-blue-700 border-blue-200/60',
+    'Erro': 'bg-red-50 text-red-700 border-red-200/60'
+  };
 
-  const statusDot = {
+  const statusDots: Record<string, string> = {
     'Sucesso': 'bg-emerald-500',
     'Divergência': 'bg-orange-500',
-    'Auditoria': 'bg-blue-500'
-  }[specimen.status] || 'bg-slate-400';
+    'Auditoria': 'bg-blue-500',
+    'Erro': 'bg-red-500'
+  };
 
-  const imageUrl = specimen.image_url || specimen.url;
+  const currentStatusStyle = statusStyles[specimen.status] || 'bg-slate-50 text-slate-700 border-slate-200';
+  const currentStatusDot = statusDots[specimen.status] || 'bg-slate-400';
+
+  const imageUrl = specimen.image_url;
 
   return (
     <div 
@@ -50,7 +56,7 @@ export default function SpecimenCard({ specimen, onClick }: SpecimenCardProps) {
               imageLoading ? "opacity-0" : "opacity-100"
             )}
             loading="lazy"
-            onLoad={() => setImageLoading(false)} // Esconde o Skeleton quando carrega
+            onLoad={() => setImageLoading(false)}
             onError={(e) => {
               setImageLoading(false);
               e.currentTarget.style.display = 'none';
@@ -79,8 +85,8 @@ export default function SpecimenCard({ specimen, onClick }: SpecimenCardProps) {
 
         {/* Badge de Status */}
         <div className="absolute top-3 right-3 z-30">
-          <span className={cn("px-2.5 py-1 rounded-full text-[10px] font-black border flex items-center gap-1.5 shadow-sm bg-white/90 backdrop-blur-sm", statusStyles)}>
-            <span className={cn("w-1.5 h-1.5 rounded-full", statusDot)} />
+          <span className={cn("px-2.5 py-1 rounded-full text-[10px] font-black border flex items-center gap-1.5 shadow-sm bg-white/90 backdrop-blur-sm", currentStatusStyle)}>
+            <span className={cn("w-1.5 h-1.5 rounded-full", currentStatusDot)} />
             {specimen.status}
           </span>
         </div>
