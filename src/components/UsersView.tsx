@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
-import { Loader2, Shield, ShieldOff, KeyRound, UserCheck, UserX, RefreshCw } from 'lucide-react';
+import { Loader2, Shield, KeyRound, UserCheck, UserX, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface UserProfile {
@@ -31,13 +31,22 @@ export default function UsersView() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const { data: profiles } = await supabase
+      // Busca os perfis da tabela pública (Acessível pelo cliente autenticado)
+      const { data: profiles, error: profileError } = await supabase
         .from('profiles')
         .select('id, display_name, role, blocked')
         .order('role', { ascending: false });
 
-      // Buscar emails via auth admin (apenas se disponível)
-      const { data: { users: authUsers } } = await supabase.auth.admin.listUsers().catch(() => ({ data: { users: [] } }));
+      if (profileError) throw profileError;
+
+      // Proteção de pipeline: Tenta capturar dados de autenticação administrativa sem quebrar o fluxo do app
+      let authUsers: any[] = [];
+      try {
+        const { data } = await supabase.auth.admin.listUsers();
+        if (data && data.users) authUsers = data.users;
+      } catch (e) {
+        console.warn('Nota: A listagem direta de Auth via Admin requer chaves service_role no backend.', e);
+      }
 
       const merged = (profiles || []).map(p => ({
         ...p,
@@ -45,148 +54,193 @@ export default function UsersView() {
       }));
 
       setUsers(merged);
-    } catch (e) {
-      console.error(e);
+    } catch (e: any) {
+      console.error('Erro na carga de usuários:', e);
+      showToast('Falha ao sincronizar dados da tabela de perfis.');
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { loadUsers(); }, []);
+  useEffect(() => {
+    if (isAdmin) {
+      loadUsers();
+    }
+  }, [isAdmin]);
 
   const toggleBlock = async (user: UserProfile) => {
     setSavingId(user.id);
     try {
-      await supabase.from('profiles').update({ blocked: !user.blocked }).eq('id', user.id);
-      showToast(user.blocked ? `${user.display_name || user.email} desbloqueado!` : `${user.display_name || user.email} bloqueado!`);
-      loadUsers();
-    } catch {
-      showToast('Erro ao alterar status.');
+      const nextBlockState = !user.blocked;
+      const { error } = await supabase
+        .from('profiles')
+        .update({ blocked: nextBlockState })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      showToast(
+        nextBlockState 
+          ? `${user.display_name || 'Usuário'} foi bloqueado.` 
+          : `${user.display_name || 'Usuário'} foi desbloqueado.`
+      );
+      await loadUsers();
+    } catch (err) {
+      showToast('Erro de permissão ao alterar status do perfil.');
     } finally {
       setSavingId(null);
     }
   };
 
-  const changePassword = async (userId: string) => {
+  const handlePasswordChange = async (userId: string) => {
     if (!newPassword || newPassword.length < 6) {
-      showToast('Senha deve ter pelo menos 6 caracteres.');
+      showToast('A senha deve conter no mínimo 6 caracteres.');
       return;
     }
     setSavingId(userId);
     try {
+      // Método seguro via RPC ou Admin API (Exige privilégios configurados no banco)
       const { error } = await supabase.auth.admin.updateUserById(userId, { password: newPassword });
       if (error) throw error;
-      showToast('Senha alterada com sucesso!');
+      
+      showToast('Senha administrativa alterada com sucesso!');
       setChangingPassword(null);
       setNewPassword('');
-    } catch {
-      showToast('Erro ao alterar senha. Verifique as permissões do Supabase.');
+    } catch (err) {
+      showToast('Ação negada. Altere chaves de Admin ou utilize rotas de API autenticadas.');
     } finally {
       setSavingId(null);
     }
   };
 
-  if (!isAdmin) return (
-    <div className="h-60 flex items-center justify-center text-slate-400">
-      <Shield size={32} className="opacity-20 mr-3" />
-      Acesso restrito a administradores.
-    </div>
-  );
+  if (!isAdmin) {
+    return (
+      <div className="h-60 flex flex-col items-center justify-center text-slate-400 font-inter gap-2">
+        <Shield size={32} className="opacity-20 text-red-500 animate-pulse" />
+        <p className="text-sm font-bold text-slate-500">Acesso restrito a administradores do Preciso.OCR.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-700">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 animated animate-in font-inter">
+      <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900">Gerenciamento de Usuários</h1>
-          <p className="text-slate-500 text-sm mt-1">Gerencie acesso e senhas das contas.</p>
+          <h1 className="text-2xl font-black text-slate-900 font-montserrat">Gerenciamento de Usuários</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Controle níveis de acesso, bloqueios de segurança e credenciais.</p>
         </div>
-        <button onClick={loadUsers} className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm hover:bg-slate-200 transition-all">
-          <RefreshCw size={15} /> Atualizar
+        <button 
+          onClick={() => loadUsers()} 
+          className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 border border-slate-200/60 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition-all shadow-sm"
+        >
+          <RefreshCw size={14} /> Sincronizar
         </button>
       </div>
 
       {loading ? (
         <div className="h-40 flex items-center justify-center">
-          <Loader2 className="animate-spin text-blue-600" size={28} />
+          <Loader2 className="animate-spin text-blue-600" size={32} />
         </div>
       ) : (
         <div className="space-y-3">
           {users.map(u => (
-            <div key={u.id} className={cn(
-              'bg-white rounded-2xl border p-4 lg:p-5 transition-all',
-              u.blocked ? 'border-red-100 bg-red-50/30' : 'border-slate-100'
-            )}>
-              <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div 
+              key={u.id} 
+              className={cn(
+                'bg-white rounded-2xl border p-4 lg:p-5 transition-all shadow-sm flex flex-col justify-center',
+                u.blocked ? 'border-red-200 bg-red-50/20' : 'border-slate-100'
+              )}
+            >
+              <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-3">
                   <div className={cn(
-                    'w-10 h-10 rounded-2xl flex items-center justify-center font-black text-sm',
-                    u.role === 'admin' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-600'
+                    'w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm border shadow-inner',
+                    u.role === 'admin' 
+                      ? 'bg-violet-50 text-violet-700 border-violet-200/50' 
+                      : 'bg-slate-50 text-slate-600 border-slate-200'
                   )}>
-                    {(u.display_name || u.email || '?')[0].toUpperCase()}
+                    {(u.display_name || u.email || 'U')[0].toUpperCase()}
                   </div>
-                  <div>
-                    <p className="font-bold text-slate-900 text-sm">{u.display_name || '—'}</p>
-                    <p className="text-xs text-slate-400">{u.email}</p>
+                  <div className="min-w-0">
+                    <p className="font-bold text-slate-800 text-sm truncate max-w-[220px]">
+                      {u.display_name || 'Usuário sem Nome'}
+                    </p>
+                    <p className="text-xs text-slate-400 font-medium truncate max-w-[220px]">{u.email}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className={cn(
-                    'px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest',
-                    u.role === 'admin' ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500'
+                    'px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border',
+                    u.role === 'admin' 
+                      ? 'bg-violet-50 text-violet-700 border-violet-200/60' 
+                      : 'bg-slate-50 text-slate-500 border-slate-200'
                   )}>
                     {u.role}
                   </span>
 
                   {u.blocked && (
-                    <span className="px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest bg-red-100 text-red-600">
+                    <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest bg-red-50 text-red-600 border border-red-200/60">
                       Bloqueado
                     </span>
                   )}
 
-                  {/* Não permitir bloquear o próprio admin */}
+                  {/* Impede auto-bloqueio técnico */}
                   {u.role !== 'admin' && (
                     <button
                       onClick={() => toggleBlock(u)}
                       disabled={savingId === u.id}
                       className={cn(
-                        'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all',
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border shadow-sm',
                         u.blocked
-                          ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                          : 'bg-red-50 text-red-600 hover:bg-red-100'
-                      )}>
-                      {savingId === u.id ? <Loader2 size={13} className="animate-spin" /> :
-                        u.blocked ? <><UserCheck size={13} /> Desbloquear</> : <><UserX size={13} /> Bloquear</>}
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                          : 'bg-red-50 text-red-600 border-red-100 hover:bg-red-100'
+                      )}
+                    >
+                      {savingId === u.id ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : u.blocked ? (
+                        <span>Ativar Conta</span>
+                      ) : (
+                        <span>Bloquear</span>
+                      )}
                     </button>
                   )}
 
                   <button
-                    onClick={() => { setChangingPassword(changingPassword === u.id ? null : u.id); setNewPassword(''); }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 transition-all">
-                    <KeyRound size={13} /> Senha
+                    onClick={() => { 
+                      setChangingPassword(changingPassword === u.id ? null : u.id); 
+                      setNewPassword(''); 
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100 shadow-sm transition-all"
+                  >
+                    <KeyRound size={13} />
+                    <span>Redefinir</span>
                   </button>
                 </div>
               </div>
 
-              {/* Campo de nova senha */}
+              {/* Input deslizante de Nova Senha */}
               {changingPassword === u.id && (
-                <div className="mt-4 pt-4 border-t border-slate-100 flex gap-2 items-center">
+                <div className="mt-4 pt-4 border-t border-slate-100 flex gap-2 items-center animated fadeIn">
                   <input
                     type="password"
-                    placeholder="Nova senha (mín. 6 caracteres)"
+                    placeholder="Nova senha de acesso (mín. 6 dígitos)"
                     value={newPassword}
                     onChange={e => setNewPassword(e.target.value)}
-                    className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:bg-white focus:border-slate-300 focus:outline-none transition-all text-slate-800"
                   />
                   <button
-                    onClick={() => changePassword(u.id)}
+                    onClick={() => handlePasswordChange(u.id)}
                     disabled={savingId === u.id}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all disabled:opacity-50">
-                    {savingId === u.id ? <Loader2 size={14} className="animate-spin" /> : 'Salvar'}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-md shadow-blue-600/10 transition-all disabled:opacity-50"
+                  >
+                    {savingId === u.id ? <Loader2 size={14} className="animate-spin" /> : 'Confirmar'}
                   </button>
                   <button
                     onClick={() => setChangingPassword(null)}
-                    className="px-4 py-2 bg-slate-100 text-slate-600 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all">
+                    className="px-4 py-2 bg-slate-100 text-slate-600 border border-slate-200/60 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all"
+                  >
                     Cancelar
                   </button>
                 </div>
@@ -196,9 +250,9 @@ export default function UsersView() {
         </div>
       )}
 
-      {/* Toast */}
+      {/* Toast Flutuante */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-[200] bg-slate-900 text-white px-5 py-4 rounded-2xl shadow-2xl text-sm font-bold animate-in slide-in-from-bottom duration-300">
+        <div className="fixed bottom-6 right-6 z-[200] bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl text-xs font-bold animate-in slide-in-from-bottom duration-300 border border-slate-800">
           {toast}
         </div>
       )}

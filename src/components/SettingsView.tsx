@@ -1,193 +1,201 @@
 'use client';
 
-import { useState } from 'react';
-import { useAuth } from '@/components/AuthProvider';
-import { User, Mail, Shield, Monitor, Bell, Key, Lock, Save, CheckCircle2, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase'; // Certifique-se de que o caminho do seu cliente supabase está correto
+import { User, Shield, Image, Save, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
 
 export default function SettingsView() {
-  const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState('perfil');
-  const [saved, setSaved] = useState(false);
-  const [resettingPassword, setResettingPassword] = useState(false);
-  const [passwordResetSent, setPasswordResetSent] = useState(false);
-  const [passwordError, setPasswordError] = useState<string | null>(null);
+  // Estados do Perfil
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  
+  // Estados de Controle da Interface
+  const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const tabs = [
-    { id: 'perfil', label: 'Perfil', icon: User },
-    { id: 'seguranca', label: 'Segurança', icon: Shield },
-    { id: 'app', label: 'Aplicação', icon: Monitor },
-    { id: 'notificacoes', label: 'Notificações', icon: Bell },
-  ];
+  // Carrega os dados do perfil do usuário logado ao abrir a tela
+  useEffect(() => {
+    async function loadUserProfile() {
+      try {
+        setLoading(true);
+        const { data: { user }, error } = await supabase.auth.getUser();
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
+        if (error) throw error;
 
-  const handlePasswordReset = async () => {
-    if (!user?.email) return;
-    setResettingPassword(true);
-    setPasswordError(null);
+        if (user) {
+          // Extrai os dados salvos dentro do metadado do usuário
+          const metadata = user.user_metadata || {};
+          setName(metadata.name || user.email?.split('@')[0] || '');
+          setRole(metadata.role || 'Analista de Faturamento');
+          setImageUrl(metadata.image_url || '');
+        }
+      } catch (err: any) {
+        console.error('Erro ao carregar perfil:', err);
+        setErrorMessage('Não foi possível carregar os dados do perfil.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadUserProfile();
+  }, []);
+
+  // Função para salvar as alterações no Supabase
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    setErrorMessage(null);
+    setSaveSuccess(false);
+
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+      // Atualiza os metadados do usuário autenticado no Supabase
+      const { error } = await supabase.auth.updateUser({
+        data: {
+          name: name,
+          role: role,
+          image_url: imageUrl,
+        }
       });
+
       if (error) throw error;
-      setPasswordResetSent(true);
-    } catch (e: any) {
-      setPasswordError(e.message || 'Erro ao enviar e-mail de redefinição.');
+
+      setSaveSuccess(true);
+      
+      // Remove a mensagem de sucesso após 3 segundos
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (err: any) {
+      console.error('Erro ao salvar perfil:', err);
+      setErrorMessage(err.message || 'Falha ao salvar as configurações.');
     } finally {
-      setResettingPassword(false);
+      setIsSaving(false);
     }
   };
 
+  if (loading) {
+    return (
+      <div className="h-[50vh] flex flex-col items-center justify-center">
+        <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-2" />
+        <p className="text-slate-500 font-medium">Carregando configurações...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 lg:space-y-8 animate-in fade-in duration-700">
-      <div>
-        <h1 className="text-2xl lg:text-3xl font-black text-slate-900 font-montserrat tracking-tight">Configurações</h1>
-        <p className="text-slate-500 mt-1 text-sm">Gerencie suas preferências de conta e parâmetros do sistema.</p>
+    <div className="max-w-3xl mx-auto space-y-6 animated animate-in font-inter">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-black text-slate-900 font-montserrat">Configurações</h2>
+          <p className="text-sm text-slate-500">Gerencie suas preferências de perfil e do sistema Preciso.OCR.</p>
+        </div>
       </div>
 
-      <div className="flex flex-col lg:grid lg:grid-cols-4 gap-4 lg:gap-8">
-        {/* Tabs - horizontal scroll on mobile, vertical on desktop */}
-        <div className="flex lg:flex-col gap-2 overflow-x-auto scrollbar-hide pb-1 lg:pb-0">
-          {tabs.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2.5 rounded-2xl transition-all font-bold text-sm whitespace-nowrap shrink-0 lg:w-full",
-                activeTab === tab.id
-                  ? "bg-blue-600 text-white shadow-lg shadow-blue-500/20"
-                  : "text-slate-500 hover:bg-slate-100 bg-slate-100/50"
-              )}>
-              <tab.icon size={16} />
-              {tab.label}
-            </button>
-          ))}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Lado Esquerdo: Preview Visual do Card */}
+        <div className="card-glass p-6 bg-white border border-slate-100 rounded-[2rem] flex flex-col items-center text-center justify-center space-y-4 shadow-sm h-fit">
+          <div className="w-24 h-24 rounded-3xl bg-slate-100 border-2 border-slate-200 overflow-hidden relative flex items-center justify-center text-slate-400">
+            {imageUrl ? (
+              <img src={imageUrl} alt="Avatar" className="w-full h-full object-cover" onError={(e) => e.currentTarget.src = ''} />
+            ) : (
+              <User size={40} className="opacity-40" />
+            )}
+          </div>
+          <div>
+            <h4 className="font-bold text-slate-800 text-base truncate max-w-[180px]">
+              {name || 'Usuário'}
+            </h4>
+            <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mt-0.5">
+              {role}
+            </p>
+          </div>
         </div>
 
-        {/* Content */}
-        <div className="lg:col-span-3 card-glass p-6 lg:p-8 space-y-8">
-          {activeTab === 'perfil' && (
-            <div className="animate-in fade-in slide-in-from-right space-y-8">
-              <section className="space-y-6">
-                <div className="flex items-center gap-4 lg:gap-6">
-                  <div className="w-16 h-16 lg:w-24 lg:h-24 rounded-[2rem] bg-slate-100 border-4 border-white shadow-xl overflow-hidden shrink-0">
-                    {user?.user_metadata?.avatar_url ? (
-                      <img src={user.user_metadata.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-300">
-                        <User size={32} />
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <h3 className="text-lg lg:text-xl font-bold text-slate-900">
-                      {user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Usuário'}
-                    </h3>
-                    <p className="text-sm text-slate-500 truncate max-w-[200px] lg:max-w-none">{user?.email}</p>
-                    <span className="inline-block mt-2 px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-widest rounded-full">
-                      Analista
-                    </span>
-                  </div>
-                </div>
+        {/* Lado Direito: Formulário de Edição */}
+        <div className="md:col-span-2 card-glass p-6 lg:p-8 bg-white border border-slate-100 rounded-[2.5rem] shadow-sm">
+          <form onSubmit={handleSaveProfile} className="space-y-5">
+            <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2">
+              <Shield size={14} /> Dados do Perfil
+            </h3>
 
-                <div className="grid sm:grid-cols-2 gap-4 lg:gap-6 pt-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Nome Completo</label>
-                    <div className="relative">
-                      <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                      <input type="text" defaultValue={user?.user_metadata?.full_name}
-                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-slate-900 font-medium" />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">E-mail</label>
-                    <div className="relative">
-                      <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                      <input type="email" defaultValue={user?.email} disabled
-                        className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-slate-900 font-medium opacity-50 cursor-not-allowed" />
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="pt-6 border-t border-slate-50 space-y-4">
-                <div>
-                  <h4 className="font-bold text-slate-900">Integração Gemini AI</h4>
-                  <p className="text-xs text-slate-500">API Key configurada via variável de ambiente.</p>
-                </div>
-                <div className="p-4 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <Key className="text-emerald-600 shrink-0" size={20} />
-                    <div>
-                      <p className="text-sm font-bold text-emerald-900">Chave de API Ativa</p>
-                      <p className="text-[10px] text-emerald-600">Gemini AI configurado via variável de ambiente</p>
-                    </div>
-                  </div>
-                  <CheckCircle2 className="text-emerald-500 shrink-0" size={20} />
-                </div>
-              </section>
-
-              <div className="flex justify-end pt-2">
-                <button onClick={handleSave} className="btn-primary flex items-center gap-2">
-                  {saved ? <><CheckCircle2 size={18} /> Salvo!</> : <><Save size={18} /> Salvar Alterações</>}
-                </button>
-              </div>
+            {/* Input: Nome */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-600 block">Nome Completo</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ex: Rafael Pereira dos Santos"
+                className="w-full p-3.5 bg-slate-50 rounded-2xl text-sm border border-transparent focus:bg-white focus:border-slate-200 outline-none font-medium text-slate-800 transition-all placeholder-slate-400 focus:ring-4 focus:ring-blue-500/5"
+                required
+              />
             </div>
-          )}
 
-          {activeTab === 'seguranca' && (
-            <div className="animate-in fade-in slide-in-from-right space-y-6">
-              <div>
-                <h4 className="font-bold text-slate-900">Autenticação e Segurança</h4>
-                <p className="text-xs text-slate-500">Gerencie sua senha e métodos de acesso.</p>
-              </div>
-
-              <div className="p-5 lg:p-6 bg-slate-50 rounded-[2rem] border border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 shadow-sm shrink-0">
-                    <Lock size={20} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-900">Alterar Senha</p>
-                    <p className="text-[10px] text-slate-500">
-                      {passwordResetSent
-                        ? `E-mail enviado para ${user?.email}`
-                        : 'Recomendamos trocar sua senha a cada 90 dias.'}
-                    </p>
-                    {passwordError && <p className="text-[10px] text-red-600 mt-1">{passwordError}</p>}
-                  </div>
-                </div>
-                <button
-                  onClick={handlePasswordReset}
-                  disabled={resettingPassword || passwordResetSent}
-                  className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-60 flex items-center gap-2 shrink-0"
-                >
-                  {resettingPassword ? <Loader2 size={14} className="animate-spin" /> :
-                   passwordResetSent ? <CheckCircle2 size={14} className="text-emerald-600" /> : null}
-                  {passwordResetSent ? 'E-mail enviado' : 'Redefinir Senha'}
-                </button>
-              </div>
-
-              <div className="p-5 lg:p-6 bg-blue-50 rounded-[2rem] border border-blue-100/50 flex items-center gap-4">
-                <Shield className="text-blue-600 shrink-0" size={24} />
-                <div>
-                  <p className="text-sm font-bold text-blue-900">Proteção de Conta Ativa</p>
-                  <p className="text-[10px] text-blue-600 font-medium">Sua conta está protegida por criptografia via Supabase Auth.</p>
-                </div>
-              </div>
+            {/* Input: Função Desatada */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-600 block">Função / Cargo</label>
+              <input
+                type="text"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                placeholder="Ex: Supervisor de Faturamento"
+                className="w-full p-3.5 bg-slate-50 rounded-2xl text-sm border border-transparent focus:bg-white focus:border-slate-200 outline-none font-medium text-slate-800 transition-all placeholder-slate-400 focus:ring-4 focus:ring-blue-500/5"
+                required
+              />
             </div>
-          )}
 
-          {(activeTab === 'app' || activeTab === 'notificacoes') && (
-            <div className="animate-in fade-in slide-in-from-right flex flex-col items-center justify-center h-48 text-slate-400">
-              <Monitor size={40} className="opacity-20 mb-4" />
-              <p className="font-bold">Em breve</p>
-              <p className="text-sm">Esta seção está sendo desenvolvida.</p>
+            {/* Input: URL da Imagem */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-600 block flex items-center gap-1.5">
+                <Image size={12} /> URL da Imagem de Perfil
+              </label>
+              <input
+                type="url"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://exemplo.com/sua-foto.jpg"
+                className="w-full p-3.5 bg-slate-50 rounded-2xl text-sm border border-transparent focus:bg-white focus:border-slate-200 outline-none font-medium text-slate-800 transition-all placeholder-slate-400 focus:ring-4 focus:ring-blue-500/5"
+              />
+              <p className="text-[10px] text-slate-400 font-medium">Insira o link de uma imagem pública para usar como foto de avatar.</p>
             </div>
-          )}
+
+            {/* Feedbacks Visuais */}
+            {saveSuccess && (
+              <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-emerald-700 text-xs font-bold animated fadeIn">
+                <CheckCircle2 size={16} className="shrink-0" />
+                <span>Configurações salvas com sucesso no banco de dados!</span>
+              </div>
+            )}
+
+            {errorMessage && (
+              <div className="flex items-center gap-2 p-3 bg-red-50 rounded-2xl border border-red-100 text-red-700 text-xs font-bold animated fadeIn">
+                <AlertCircle size={16} className="shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {/* Botão Salvar */}
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={isSaving}
+                className={cn(
+                  "w-full btn-primary flex items-center justify-center gap-2 transition-all py-3.5 rounded-2xl font-bold text-sm",
+                  saveSuccess && "bg-emerald-600 hover:bg-emerald-600 shadow-emerald-600/10"
+                )}
+              >
+                {isSaving ? (
+                  <Loader2 className="animate-spin" size={18} />
+                ) : saveSuccess ? (
+                  <><CheckCircle2 size={18} /> Alterações Salvas!</>
+                ) : (
+                  <><Save size={18} /> Salvar Perfil</>
+                )}
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
