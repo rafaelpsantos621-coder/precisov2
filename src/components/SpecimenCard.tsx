@@ -3,10 +3,10 @@
 import { useState } from 'react';
 import { Specimen } from '@/types';
 import { cn } from '@/lib/utils';
-import { Eye, FileText, Calendar, User } from 'lucide-react';
+import { Eye, FileText, Calendar, User, X } from 'lucide-react';
 
 interface SpecimenCardProps {
-  specimen: Specimen;
+  specimen: Specimen & { onHide?: (id: string) => void };
   onClick: () => void;
 }
 
@@ -14,7 +14,7 @@ export default function SpecimenCard({ specimen, onClick }: SpecimenCardProps) {
   // Estado para controlar o esqueleto de carregamento da imagem
   const [imageLoading, setImageLoading] = useState(true);
 
-  // Mapeamento de estilos de status atualizado incluindo suporte para 'Erro'
+  // Mapeamento de estilos de status
   const statusStyles: Record<string, string> = {
     'Sucesso': 'bg-emerald-50 text-emerald-700 border-emerald-200/60',
     'Divergência': 'bg-orange-50 text-orange-700 border-orange-200/60',
@@ -39,9 +39,23 @@ export default function SpecimenCard({ specimen, onClick }: SpecimenCardProps) {
       onClick={onClick}
       className="card-glass overflow-hidden flex flex-col cursor-pointer group hover:scale-[1.03] hover:shadow-xl hover:shadow-slate-200/60 transition-all duration-300 border border-slate-100 bg-white relative z-10 hover:z-20"
     >
-      {/* Container da Imagem / Preview com Proporção de Tela Segura */}
+      {/* Container da Imagem / Preview */}
       <div className="w-full aspect-[4/3] bg-slate-100 relative overflow-hidden border-b border-slate-100">
         
+        {/* BOTÃO DE OCULTAR INDIVIDUAL (Apenas visual na sessão do usuário) */}
+        <button 
+          onClick={(e) => {
+            e.stopPropagation(); // Impede que o clique abra o modal de detalhes
+            if (specimen.onHide) {
+              specimen.onHide(specimen.id);
+            }
+          }}
+          className="absolute top-3 left-3 z-40 p-1.5 bg-white/90 backdrop-blur-sm text-slate-400 hover:text-red-600 hover:border-red-200 rounded-xl border border-slate-200/60 opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-sm flex items-center justify-center"
+          title="Ocultar da lista"
+        >
+          <X size={13} />
+        </button>
+
         {/* SKELETON SCREEN: Pisca enquanto a imagem não carrega */}
         {imageUrl && imageLoading && (
           <div className="absolute inset-0 bg-gradient-to-r from-slate-100 via-slate-200 to-slate-100 animate-pulse z-20" />
