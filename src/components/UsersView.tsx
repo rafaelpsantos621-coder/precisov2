@@ -3,16 +3,17 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
-import { Loader2, Shield, KeyRound, UserCheck, UserX, RefreshCw, User } from 'lucide-react';
+import { Loader2, Shield, KeyRound, UserCheck, UserX, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+// Contrato de Tipagem corrigido para bater 100% com as colunas do seu banco (image_url)
 interface UserProfile {
   id: string;
   display_name: string | null;
   role: string;
   blocked: boolean;
   email?: string;
-  avatar_url?: string; // Nova propriedade para a foto de perfil
+  image_url?: string; // Corrigido de avatar_url para image_url
 }
 
 export default function UsersView() {
@@ -35,33 +36,30 @@ export default function UsersView() {
       // 1. Busca os perfis da tabela pública 'profiles'
       const { data: profiles, error: profileError } = await supabase
         .from('profiles')
-        .select('id, display_name, role, blocked')
+        .select('id, display_name, role, blocked, image_url') // Forçado image_url aqui
         .order('role', { ascending: false });
 
       if (profileError) throw profileError;
 
-      // 2. Busca a lista oficial de usuários do Auth (onde ficam os metadados salvos na aba de Configurações)
+      // 2. Busca a lista oficial de usuários do Auth de forma segura
       let authUsers: any[] = [];
       try {
         const { data } = await supabase.auth.admin.listUsers();
         if (data && data.users) authUsers = data.users;
       } catch (e) {
-        console.warn('Buscando dados complementares via sessão local ou metadados públicos.');
+        console.warn('Nota: A listagem direta de Auth via Admin requer chaves service_role no backend.', e);
       }
 
-      // 3. Mescla os dados priorizando sempre o metadata atualizado de Configurações
+      // 3. Mescla os dados priorizando o metadata atualizado de Configurações
       const merged = (profiles || []).map(p => {
         const authUser = authUsers?.find((u: any) => u.id === p.id);
         const metadata = authUser?.user_metadata || {};
 
         return {
           ...p,
-          // Prioriza o nome editado nas configurações, senão usa o display_name do profiles
           display_name: metadata.name || p.display_name || authUser?.email?.split('@')[0] || 'Usuário',
-          // Prioriza o cargo editado nas configurações, senão usa o role do profiles
           role: metadata.role || p.role || 'Analista',
-          // Captura a URL da imagem salva nas configurações
-          avatar_url: metadata.image_url || '',
+          image_url: metadata.image_url || p.image_url || '', // Sincronização da tipagem
           email: authUser?.email || '—',
         };
       });
@@ -69,7 +67,7 @@ export default function UsersView() {
       setUsers(merged);
     } catch (e: any) {
       console.error('Erro na carga de usuários:', e);
-      showToast('Falha ao sincronizar dados e metadados dos perfis.');
+      showToast('Falha ao sincronizar dados da tabela de perfis.');
     } finally {
       setLoading(false);
     }
@@ -119,7 +117,7 @@ export default function UsersView() {
       setChangingPassword(null);
       setNewPassword('');
     } catch (err) {
-      showToast('Erro de permissão de administrador ao redefinir senha.');
+      showToast('Erro de permissão ao redefinir senha.');
     } finally {
       setSavingId(null);
     }
@@ -145,7 +143,7 @@ export default function UsersView() {
           onClick={() => loadUsers()} 
           className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 border border-slate-200 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition-all shadow-sm"
         >
-          <RefreshCw size={14} /> Atualizar
+          <RefreshCw size={14} /> Sincronizar
         </button>
       </div>
 
@@ -165,13 +163,13 @@ export default function UsersView() {
             >
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-3">
-                  {/* Foto de Perfil Dinâmica com Fallback para a Letra Inicial */}
+                  {/* Renderização corrigida de u.avatar_url para u.image_url */}
                   <div className={cn(
                     'w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden border shadow-inner shrink-0',
                     u.role === 'admin' ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-slate-200 bg-slate-50 text-slate-600'
                   )}>
-                    {u.avatar_url ? (
-                      <img src={u.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                    {u.image_url ? (
+                      <img src={u.image_url} alt="Avatar" className="w-full h-full object-cover" />
                     ) : (
                       <span className="font-black text-sm">{(u.display_name || u.email || 'U')[0].toUpperCase()}</span>
                     )}
@@ -185,7 +183,6 @@ export default function UsersView() {
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Badge de Cargo Dinâmico (Buscado das configurações) */}
                   <span className={cn(
                     'px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border',
                     u.role === 'admin' 
@@ -237,7 +234,7 @@ export default function UsersView() {
 
               {/* Input de Nova Senha */}
               {changingPassword === u.id && (
-                <div className="mt-4 pt-4 border-t border-slate-100 flex gap-2 items-center animated fadeIn">
+                <div className="mt-4 pt-4 border-t border-slate-100 flex gap-2 items-center">
                   <input
                     type="password"
                     placeholder="Nova senha de acesso (mín. 6 dígitos)"
