@@ -22,7 +22,7 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // ⚡ Estado local isolado para forçar a Sidebar a atualizar de verdade
+  // Estado local isolado e alimentado direto da tabela pública do banco de dados
   const [sidebarUser, setSidebarUser] = useState({
     name: 'Analista',
     role: 'Operador',
@@ -39,33 +39,42 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // ⚡ Busca os dados novos direto do banco/sessão atual sem depender do cache do useAuth
+  // Busca os dados físicos diretamente do Banco de Dados (tabela profiles)
   useEffect(() => {
-    async function fetchFreshUser() {
-      const { data: { user: freshUser } } = await supabase.auth.getUser();
-      if (freshUser) {
-        const metadata = freshUser.user_metadata || {};
-        
-        // Tenta buscar também da tabela profiles para garantir estabilidade
+    async function fetchDatabaseProfile() {
+      // 1. Pega o ID de forma direta da sessão atual do Supabase (livre do useAuth)
+      const { data: { session } } = await supabase.auth.getSession();
+      const currentUserId = session?.user?.id || user?.id;
+
+      if (currentUserId) {
+        // 2. Busca direto na tabela profiles que acabamos de ajustar via SQL
         const { data: profileData } = await supabase
           .from('profiles')
           .select('display_name, role, image_url')
-          .eq('id', freshUser.id)
+          .eq('id', currentUserId)
           .single()
           .catch(() => ({ data: null }));
 
-        setSidebarUser({
-          name: profileData?.display_name || metadata.name || metadata.full_name || freshUser.email?.split('@')[0] || 'Analista',
-          role: profileData?.role || metadata.role || (isAdmin ? 'Administrador' : 'Operador'),
-          image: profileData?.image_url || metadata.image_url || metadata.avatar_url || ''
-        });
+        // 3. Se achar no banco, renderiza. Se não, usa o metadado como plano B
+        if (profileData) {
+          setSidebarUser({
+            name: profileData.display_name || session?.user?.user_metadata?.name || 'Analista',
+            role: profileData.role || (isAdmin ? 'Administrador' : 'Operador'),
+            image: profileData.image_url || session?.user?.user_metadata?.image_url || ''
+          });
+        } else if (session?.user) {
+          const metadata = session.user.user_metadata || {};
+          setSidebarUser({
+            name: metadata.name || metadata.full_name || session.user.email?.split('@')[0] || 'Analista',
+            role: metadata.role || (isAdmin ? 'Administrador' : 'Operador'),
+            image: metadata.image_url || metadata.avatar_url || ''
+          });
+        }
       }
     }
 
-    if (user) {
-      fetchFreshUser();
-    }
-  }, [user, activeView, isAdmin]); // Recarrega sempre que você mudar de aba (ex: voltar de configurações)
+    fetchDatabaseProfile();
+  }, [user, activeView, isAdmin]); // Dispara sempre que você alternar de aba (ex: sair de Configurações e voltar pro Painel)
 
   if (loading) return null;
   if (!user) return <LoginPage />;
@@ -150,7 +159,7 @@ export default function App() {
             {(isSidebarOpen || isMobileMenuOpen) && <span className="text-sm font-bold">Sair do Sistema</span>}
           </button>
 
-          {/* 🟡 CARTÃO ATUALIZADO PARA LER O ESTADO DO DETECT_FRESH */}
+          {/* 🟡 Cartão Conectado à Tabela Pública do Banco */}
           <div className={cn("flex items-center gap-3 p-2 rounded-2xl bg-slate-800/30 border border-slate-700/30 transition-all",
             !isSidebarOpen && !isMobileMenuOpen && "justify-center p-1")}>
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white shrink-0 shadow-lg overflow-hidden border border-slate-700">
