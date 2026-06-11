@@ -11,7 +11,7 @@ export default function SettingsView() {
   const [role, setRole] = useState('');
   const [imageUrl, setImageUrl] = useState('');
 
-  // Estados de controlo da interface (Loading e Feedbacks)
+  // Estados de controle da interface (Loading e Feedbacks)
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -23,7 +23,7 @@ export default function SettingsView() {
       try {
         setLoading(true);
         
-        // Captura o utilizador autenticado atual
+        // Captura o usuário autenticado atual
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError) throw authError;
 
@@ -31,7 +31,7 @@ export default function SettingsView() {
           // 1. Tenta carregar primeiro da tabela pública 'profiles'
           const { data: profileData } = await supabase
             .from('profiles')
-            .select('display_name, role, avatar_url')
+            .select('display_name, role, image_url') // Corrigido para image_url
             .eq('id', user.id)
             .single();
 
@@ -40,7 +40,7 @@ export default function SettingsView() {
           
           setName(profileData?.display_name || metadata.name || user.email?.split('@')[0] || '');
           setRole(profileData?.role || metadata.role || 'Analista de Faturamento');
-          setImageUrl(profileData?.avatar_url || metadata.image_url || '');
+          setImageUrl(profileData?.image_url || metadata.image_url || '');
         }
       } catch (err: any) {
         console.error('Erro ao carregar dados de configuração:', err);
@@ -62,9 +62,9 @@ export default function SettingsView() {
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Utilizador não autenticado.');
+      if (!user) throw new Error('Usuário não autenticado.');
 
-      // 1. ATUALIZAÇÃO NO AUTH: Atualiza o user_metadata (Para atualizar o UserView do topo instantaneamente)
+      // 1. ATUALIZAÇÃO NO AUTH: Atualiza o user_metadata (Para o UserView do topo)
       const { error: authError } = await supabase.auth.updateUser({
         data: {
           name: name,
@@ -74,15 +74,16 @@ export default function SettingsView() {
       });
       if (authError) throw authError;
 
-      // 2. ATUALIZAÇÃO NO BANCO: Atualiza a tabela pública 'profiles' (Para sincronizar o UsersView administrativo)
+      // 2. ATUALIZAÇÃO NO BANCO: Atualiza a tabela pública 'profiles' (Corrigido para 'image_url')
       const { error: dbError } = await supabase
         .from('profiles')
         .update({
           display_name: name,
           role: role,
-          avatar_url: imageUrl // Nota: Garanta que na sua tabela do banco a coluna chama-se 'avatar_url'
+          image_url: imageUrl // Mudado de avatar_url para image_url para bater com o seu banco!
         })
         .eq('id', user.id);
+      
       if (dbError) throw dbError;
 
       // Feedback visual de sucesso
@@ -101,7 +102,7 @@ export default function SettingsView() {
     return (
       <div className="h-[50vh] flex flex-col items-center justify-center">
         <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-2" />
-        <p className="text-slate-500 font-medium">A carregar configurações...</p>
+        <p className="text-slate-500 font-medium">Carregando configurações...</p>
       </div>
     );
   }
