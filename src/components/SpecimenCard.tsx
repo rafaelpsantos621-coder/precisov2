@@ -1,8 +1,8 @@
 'use client';
 
 import { Specimen } from '@/types';
-import { cn, getProxiedUrl, isRetainedClient, isSpecialClient } from '@/lib/utils';
-import { AlertCircle, CheckCircle2, Clock, ExternalLink, Info } from 'lucide-react';
+import { cn, getProxiedUrl, isRetainedClient, isSpecialClient, getOccurrenceLabel } from '@/lib/utils';
+import { AlertCircle, CheckCircle2, Clock, Info, Droplets } from 'lucide-react';
 
 interface SpecimenCardProps {
   specimen: Specimen;
@@ -13,148 +13,162 @@ export default function SpecimenCard({ specimen, onClick }: SpecimenCardProps) {
   const isRetained = isRetainedClient(specimen);
   const isSpecial = isSpecialClient(specimen);
 
+  const isDivergent =
+    specimen.leitura_documento &&
+    specimen.leitura_hidrometro &&
+    specimen.leitura_documento !== specimen.leitura_hidrometro;
+
   const getStatusStyle = (status: string) => {
     switch (status) {
-      case 'Sucesso': return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-      case 'Divergência': return 'bg-orange-50 text-orange-700 border-orange-100';
-      case 'Erro': return 'bg-red-50 text-red-700 border-red-100';
-      default: return 'bg-blue-50 text-blue-700 border-blue-100';
+      case 'Sucesso':     return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'Divergência': return 'bg-orange-50 text-orange-700 border-orange-200';
+      case 'Erro':        return 'bg-red-50 text-red-700 border-red-200';
+      default:            return 'bg-sky-50 text-sky-700 border-sky-200';
     }
   };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'Sucesso': return <CheckCircle2 size={12} />;
-      case 'Divergência': return <AlertCircle size={12} />;
-      case 'Erro': return <AlertCircle size={12} />;
-      default: return <Clock size={12} />;
+      case 'Sucesso':     return <CheckCircle2 size={11} />;
+      case 'Divergência': return <AlertCircle size={11} />;
+      case 'Erro':        return <AlertCircle size={11} />;
+      default:            return <Clock size={11} />;
     }
   };
-
-  const isDivergent = specimen.leitura_documento &&
-    specimen.leitura_hidrometro &&
-    specimen.leitura_documento !== specimen.leitura_hidrometro;
 
   return (
     <div
       onClick={onClick}
       className={cn(
-        "group relative bg-white border border-slate-100 rounded-[2rem] overflow-hidden shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all duration-500 cursor-pointer",
-        isRetained && "ring-2 ring-emerald-500/20",
-        isSpecial && "ring-2 ring-blue-500/20"
+        'group relative bg-white rounded-2xl overflow-hidden cursor-pointer transition-all duration-300',
+        'border border-slate-200 shadow-sm hover:shadow-md hover:-translate-y-0.5',
+        isRetained && 'ring-2 ring-emerald-400/40',
+        isSpecial  && 'ring-2 ring-blue-400/40',
       )}
     >
-      {/* Badges top left */}
-      <div className="absolute top-3 left-3 z-10 flex gap-1.5">
-        <span className="px-2.5 py-1 bg-slate-900/80 backdrop-blur-sm text-white text-[9px] font-black uppercase tracking-widest rounded-full">
-          Documento PDF
-        </span>
-        {isRetained && (
-          <span className="px-2.5 py-1 bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest rounded-full shadow-lg shadow-emerald-600/30">
-            Retida
+      {/* ── TOP BAR ─────────────────────────────────── */}
+      <div className="flex items-center justify-between px-3 pt-2.5 pb-2 gap-2 border-b border-slate-100 bg-white">
+        <div className="flex gap-1.5 flex-wrap">
+          <span className="px-2 py-0.5 bg-slate-800 text-white text-[9px] font-black uppercase tracking-widest rounded-full">
+            Documento PDF
           </span>
-        )}
-        {isSpecial && (
-          <span className="px-2.5 py-1 bg-blue-600 text-white text-[9px] font-black uppercase tracking-widest rounded-full shadow-lg shadow-blue-600/30">
-            Especial
-          </span>
-        )}
-      </div>
-
-      {/* Status badge top right */}
-      <div className="absolute top-3 right-3 z-10">
-        <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold border", getStatusStyle(specimen.status))}>
+          {isRetained && (
+            <span className="px-2 py-0.5 bg-emerald-500 text-white text-[9px] font-black uppercase tracking-widest rounded-full">
+              Retida
+            </span>
+          )}
+          {isSpecial && (
+            <span className="px-2 py-0.5 bg-blue-500 text-white text-[9px] font-black uppercase tracking-widest rounded-full">
+              Especial
+            </span>
+          )}
+        </div>
+        <div className={cn(
+          'flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border shrink-0',
+          getStatusStyle(specimen.status)
+        )}>
           {getStatusIcon(specimen.status)}
           {specimen.status}
         </div>
       </div>
 
-      {/* Dual image area - documento + hidrômetro lado a lado */}
-      <div className="flex h-48 bg-slate-900 border-b border-slate-100 relative overflow-hidden">
-        {/* Documento OCR - lado esquerdo */}
-        <div className="flex-1 relative border-r border-slate-700/50">
-          {specimen.image_url ? (
-            <img
-              src={getProxiedUrl(specimen.image_url)}
-              alt="Documento"
-              loading="lazy"
-              referrerPolicy="no-referrer"
-              className="w-full h-full object-cover object-top"
-            />
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center text-slate-500">
-              <Info size={24} strokeWidth={1.5} className="opacity-50 mb-1" />
-              <span className="text-[9px] uppercase font-black text-slate-500">Sem doc</span>
+      {/* ── BODY ─────────────────────────────────────── */}
+      <div className="flex bg-white" style={{ minHeight: 160 }}>
+
+        {/* ESQUERDA — apenas texto, sem nenhuma imagem */}
+        <div
+          className="flex flex-col justify-between min-w-0 px-3 py-3 gap-2 bg-white border-r border-slate-100"
+          style={{ flex: '1 1 0', overflow: 'hidden' }}
+        >
+          {/* Matrícula + OC */}
+          <div>
+            <div className="flex items-center justify-between gap-1 mb-0.5">
+              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Matrícula</span>
+              {specimen.oc_code && (
+                <span className="text-[8px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full shrink-0">
+                  OC {specimen.oc_code}
+                </span>
+              )}
             </div>
-          )}
-          {/* Label */}
-          <div className="absolute bottom-1 left-1 bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded-full">
-            <span className="text-[8px] font-bold text-white uppercase tracking-wider">DOC</span>
+            <p className="text-sm font-black text-slate-900 leading-none truncate">
+              {specimen.matricula || '—'}
+            </p>
           </div>
+
+          {/* Nome */}
+          <p className="text-[10px] font-semibold text-slate-600 leading-tight line-clamp-2">
+            {specimen.name || 'Cliente Indisponível'}
+          </p>
+
+          {/* Leituras */}
+          <div className="border-t border-dashed border-slate-100 pt-2 flex flex-col gap-1.5">
+            <div>
+              <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wide">Leitura Doc</span>
+              <p className="text-xs font-black text-slate-800 leading-none mt-0.5">
+                {specimen.leitura_documento || '—'}
+              </p>
+            </div>
+            <div>
+              <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wide">Leitura Visual</span>
+              <p className={cn(
+                'text-xs font-black leading-none mt-0.5',
+                isDivergent ? 'text-orange-500' : 'text-emerald-600'
+              )}>
+                {specimen.leitura_hidrometro || '—'}
+              </p>
+            </div>
+          </div>
+
+          {/* Ocorrência */}
+          {specimen.oc_code && (
+            <p className="text-[8px] text-slate-400 leading-tight line-clamp-1">
+              {getOccurrenceLabel(specimen.oc_code)}
+            </p>
+          )}
         </div>
 
-        {/* Hidrômetro - lado direito */}
-        <div className="flex-1 relative">
+        {/* DIREITA — SOMENTE meter_image_url, nunca image_url */}
+        <div
+          className="relative bg-slate-900 shrink-0"
+          style={{ width: '44%', minHeight: 160 }}
+        >
           {specimen.meter_image_url ? (
             <img
               src={getProxiedUrl(specimen.meter_image_url)}
               alt="Hidrômetro"
               loading="lazy"
               referrerPolicy="no-referrer"
-              className="w-full h-full object-cover object-center"
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+                objectPosition: 'center',
+                display: 'block',
+              }}
             />
           ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center text-slate-500">
-              <Info size={24} strokeWidth={1.5} className="opacity-50 mb-1" />
-              <span className="text-[9px] uppercase font-black text-slate-500">Sem foto</span>
+            <div
+              style={{ position: 'absolute', inset: 0 }}
+              className="flex flex-col items-center justify-center bg-slate-800 gap-1"
+            >
+              <Droplets size={22} strokeWidth={1.5} className="text-slate-500 opacity-40" />
+              <span className="text-[8px] uppercase font-bold text-slate-500 tracking-wide text-center px-2">
+                Sem foto do hidrômetro
+              </span>
             </div>
           )}
-          {/* Label */}
-          <div className="absolute bottom-1 right-1 bg-black/60 backdrop-blur-sm px-2 py-0.5 rounded-full">
-            <span className="text-[8px] font-bold text-white uppercase tracking-wider">VISUAL</span>
+
+          {/* Label VISUAL */}
+          <div className="absolute bottom-1.5 right-1.5 z-10 bg-black/70 backdrop-blur-sm px-1.5 py-0.5 rounded-full">
+            <span className="text-[7px] font-bold text-white uppercase tracking-wider">VISUAL</span>
           </div>
-          {/* Divergence indicator */}
+
+          {/* Divergência */}
           {isDivergent && (
-            <div className="absolute top-1 right-1 w-2.5 h-2.5 bg-orange-500 rounded-full border-2 border-white" />
+            <div className="absolute top-1.5 right-1.5 z-10 w-2.5 h-2.5 bg-orange-500 rounded-full border-2 border-white shadow" />
           )}
-        </div>
-
-        {/* Hover overlay */}
-        <div className="absolute inset-0 bg-slate-900/0 group-hover:bg-slate-900/30 transition-all duration-500 flex items-center justify-center opacity-0 group-hover:opacity-100 pointer-events-none">
-          <div className="bg-white/90 backdrop-blur-sm p-3 rounded-2xl text-slate-900 shadow-2xl">
-            <ExternalLink size={20} />
-          </div>
-        </div>
-      </div>
-
-      {/* Info area */}
-      <div className="p-4 space-y-3">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest truncate">
-            Matrícula {specimen.matricula}
-          </p>
-          <p className="text-[10px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full shrink-0">
-            {specimen.oc_code ? `OC ${specimen.oc_code}` : 'Normal'}
-          </p>
-        </div>
-
-        <h3 className="font-bold text-slate-900 text-sm leading-tight line-clamp-1">
-          {specimen.name || 'Cliente Indisponível'}
-        </h3>
-
-        <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-50">
-          <div className="flex flex-col">
-            <span className="text-[9px] text-slate-400 font-bold uppercase">Leitura Doc</span>
-            <span className="text-sm font-black text-slate-700">{specimen.leitura_documento || '---'}</span>
-          </div>
-          <div className="flex flex-col text-right">
-            <span className="text-[9px] text-slate-400 font-bold uppercase">Leitura Visual</span>
-            <span className={cn("text-sm font-black",
-              isDivergent ? "text-orange-600" : "text-emerald-600"
-            )}>
-              {specimen.leitura_hidrometro || '---'}
-            </span>
-          </div>
         </div>
       </div>
     </div>

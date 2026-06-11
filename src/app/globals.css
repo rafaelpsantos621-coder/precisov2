@@ -1,22 +1,33 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Montserrat:wght@700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght=400;500;600;700;800;900&family=Montserrat:wght=700;800;900&display=swap');
+
+/* Se estiver usando Tailwind v4, mantenha a linha abaixo. 
+   Se for Tailwind v3, mude para os 3 @tailwind tradicionais (base, components, utilities) */
 @import "tailwindcss";
 
-* { box-sizing: border-box; }
+* { 
+  box-sizing: border-box; 
+}
 
 body {
   font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .font-inter { font-family: 'Inter', system-ui, sans-serif; }
 .font-montserrat { font-family: 'Montserrat', system-ui, sans-serif; }
 
+/* Efeito Glassmorphism corrigido para aceitar transparência sutil */
 .card-glass {
-  background: white;
-  border-radius: 2rem;
-  border: 1px solid #f1f5f9;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 1.5rem; /* Ajustado de 2rem para melhor encaixe em mobile */
+  border: 1px solid rgba(241, 245, 249, 0.8);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
 }
 
+/* Botão Primário com transição suave e feedback de clique */
 .btn-primary {
   padding: 0.75rem 1.5rem;
   background: #2563eb;
@@ -25,50 +36,75 @@ body {
   border-radius: 1rem;
   border: none;
   cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 4px 6px rgba(37,99,235,0.2);
+  transition: background-color 0.2s ease, transform 0.1s ease, box-shadow 0.2s ease;
+  box-shadow: 0 4px 6px rgba(37, 99, 235, 0.2);
 }
 
-.btn-primary:hover { background: #1d4ed8; }
-.btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.btn-primary:hover { 
+  background: #1d4ed8; 
+}
 
+.btn-primary:active {
+  transform: scale(0.98); /* Feedback visual de clique */
+}
+
+.btn-primary:disabled { 
+  opacity: 0.6; 
+  cursor: not-allowed; 
+  transform: none;
+}
+
+/* Input corrigido com estado de Focus para melhorar o funcionamento */
 .input-field {
   width: 100%;
   padding: 0.75rem 1rem;
   background: #f8fafc;
-  border: 1px solid #f1f5f9;
+  border: 1px solid #e2e8f0;
   border-radius: 1rem;
   outline: none;
   color: #0f172a;
   font-weight: 500;
   font-family: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.custom-scrollbar::-webkit-scrollbar { width: 4px; }
+.input-field:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); /* Indica foco de forma elegante */
+  background: #ffffff;
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
 .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
 .custom-scrollbar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 4px; }
+.custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
 
 .scrollbar-hide::-webkit-scrollbar { display: none; }
 .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
 
-.animate-in { animation: animateIn 0.4s ease forwards; }
-@keyframes animateIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+/* --- SISTEMA DE ANIMAÇÕES CORRIGIDO --- */
+/* Classe base para quem vai ter animação */
+.animated {
+  animation-duration: 0.4s;
+  animation-fill-mode: forwards;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1); /* Transição mais fluida */
+}
 
+.animate-in { animation-name: animateIn; }
 .fade-in { animation-name: fadeIn; }
-@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
 .slide-in-from-left { animation-name: slideInLeft; }
-@keyframes slideInLeft { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
-
 .slide-in-from-right { animation-name: slideInRight; }
-@keyframes slideInRight { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
-
 .zoom-in-95 { animation-name: zoomIn; }
+.toast-enter { animation-name: toastIn; animation-duration: 0.3s; }
+
+/* Controladores de tempo extras */
+.duration-700 { animation-duration: 0.7s !important; }
+.duration-300 { animation-duration: 0.3s !important; }
+
+@keyframes animateIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideInLeft { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes slideInRight { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes zoomIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-
-.duration-700 { animation-duration: 0.7s; }
-.duration-300 { animation-duration: 0.3s; }
-
-/* Toast notification */
-.toast-enter { animation: toastIn 0.3s ease forwards; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(20px) scale(0.95); } to { opacity: 1; transform: translateY(0) scale(1); } }

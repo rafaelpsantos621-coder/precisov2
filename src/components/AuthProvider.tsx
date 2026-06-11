@@ -6,6 +6,8 @@ import { User } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
+  role: string | null;
+  isAdmin: boolean;
   loading: boolean;
   signInWithEmail: (email: string, password: string) => Promise<{ error: any }>;
   signUpWithEmail: (email: string, password: string) => Promise<{ error: any }>;
@@ -16,7 +18,29 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const loadProfile = async (userId: string) => {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('role, blocked')
+        .eq('id', userId)
+        .single();
+
+      if (data?.blocked) {
+        await supabase.auth.signOut();
+        setUser(null);
+        setRole(null);
+        return;
+      }
+
+      setRole(data?.role || 'analista');
+    } catch {
+      setRole('analista');
+    }
+  };
 
   useEffect(() => {
     if (!isSupabaseConfigured()) { setLoading(false); return; }
@@ -30,16 +54,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
         setUser(null);
+      } else if (session?.user) {
+        setUser(session.user);
+        loadProfile(session.user.id);
       } else {
-        setUser(session?.user ?? null);
+        setUser(null);
       }
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT') setUser(null);
-      else if (session) setUser(session.user);
-      else setUser(null);
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setRole(null);
+      } else if (session?.user) {
+        setUser(session.user);
+        loadProfile(session.user.id);
+      } else {
+        setUser(null);
+      }
       setLoading(false);
     });
 
@@ -59,7 +92,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => { await supabase.auth.signOut(); };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithEmail, signUpWithEmail, signOut }}>
+    <AuthContext.Provider value={{
+      user,
+      role,
+      isAdmin: role === 'admin',
+      loading,
+      signInWithEmail,
+      signUpWithEmail,
+      signOut
+    }}>
       {children}
     </AuthContext.Provider>
   );
