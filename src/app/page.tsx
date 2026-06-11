@@ -22,7 +22,7 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Estado local isolado e alimentado direto da tabela pública do banco de dados
+  // ⚡ Estado reativo local isolado para a Sidebar se atualizar em tempo real
   const [sidebarUser, setSidebarUser] = useState({
     name: 'Analista',
     role: 'Operador',
@@ -39,42 +39,40 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Busca os dados físicos diretamente do Banco de Dados (tabela profiles)
+  // ⚡ Sincronizador de metadados em tempo real
   useEffect(() => {
-    async function fetchDatabaseProfile() {
-      // 1. Pega o ID de forma direta da sessão atual do Supabase (livre do useAuth)
+    async function loadFreshSession() {
+      // Pega a sessão atualizada direto do cliente do Supabase
       const { data: { session } } = await supabase.auth.getSession();
-      const currentUserId = session?.user?.id || user?.id;
-
-      if (currentUserId) {
-        // 2. Busca direto na tabela profiles que acabamos de ajustar via SQL
-        const { data: profileData } = await supabase
-          .from('profiles')
-          .select('display_name, role, image_url')
-          .eq('id', currentUserId)
-          .single()
-          .catch(() => ({ data: null }));
-
-        // 3. Se achar no banco, renderiza. Se não, usa o metadado como plano B
-        if (profileData) {
-          setSidebarUser({
-            name: profileData.display_name || session?.user?.user_metadata?.name || 'Analista',
-            role: profileData.role || (isAdmin ? 'Administrador' : 'Operador'),
-            image: profileData.image_url || session?.user?.user_metadata?.image_url || ''
-          });
-        } else if (session?.user) {
-          const metadata = session.user.user_metadata || {};
-          setSidebarUser({
-            name: metadata.name || metadata.full_name || session.user.email?.split('@')[0] || 'Analista',
-            role: metadata.role || (isAdmin ? 'Administrador' : 'Operador'),
-            image: metadata.image_url || metadata.avatar_url || ''
-          });
-        }
+      const targetUser = session?.user || user;
+      
+      if (targetUser) {
+        const metadata = targetUser.user_metadata || {};
+        setSidebarUser({
+          // Lê as chaves exatas que salvamos na tela de configurações
+          name: metadata.name || metadata.display_name || metadata.full_name || targetUser.email?.split('@')[0] || 'Analista',
+          role: metadata.role || (isAdmin ? 'Administrador' : 'Operador'),
+          image: metadata.image_url || metadata.image || metadata.avatar_url || ''
+        });
       }
     }
 
-    fetchDatabaseProfile();
-  }, [user, activeView, isAdmin]); // Dispara sempre que você alternar de aba (ex: sair de Configurações e voltar pro Painel)
+    loadFreshSession();
+
+    // Intercepta o evento no milissegundo em que o updateUser roda no SettingsView
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const metadata = session.user.user_metadata || {};
+        setSidebarUser({
+          name: metadata.name || metadata.display_name || metadata.full_name || session.user.email?.split('@')[0] || 'Analista',
+          role: metadata.role || (isAdmin ? 'Administrador' : 'Operador'),
+          image: metadata.image_url || metadata.image || metadata.avatar_url || ''
+        });
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [user, activeView, isAdmin]); // Dispara também ao alternar abas
 
   if (loading) return null;
   if (!user) return <LoginPage />;
@@ -159,7 +157,7 @@ export default function App() {
             {(isSidebarOpen || isMobileMenuOpen) && <span className="text-sm font-bold">Sair do Sistema</span>}
           </button>
 
-          {/* 🟡 Cartão Conectado à Tabela Pública do Banco */}
+          {/* 🟡 CARTÃO SINCRONIZADO VIA SESSÃO ATIVA */}
           <div className={cn("flex items-center gap-3 p-2 rounded-2xl bg-slate-800/30 border border-slate-700/30 transition-all",
             !isSidebarOpen && !isMobileMenuOpen && "justify-center p-1")}>
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white shrink-0 shadow-lg overflow-hidden border border-slate-700">
