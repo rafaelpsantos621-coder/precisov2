@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Loader2, Save, CheckCircle2, AlertCircle, Shield, Image, Upload, User } from 'lucide-react';
+import { Loader2, Save, CheckCircle2, AlertCircle, Shield, Upload, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function SettingsView() {
@@ -29,7 +29,6 @@ export default function SettingsView() {
         if (authError) throw authError;
 
         if (user) {
-          // Busca primeiro da tabela pública profiles que agora está corrigida
           const { data: profileData } = await supabase
             .from('profiles')
             .select('display_name, role, image_url')
@@ -54,11 +53,12 @@ export default function SettingsView() {
     loadProfileData();
   }, []);
 
-  // Upload para o bucket specimens
+  // Função para gerir o upload do ficheiro local para o Supabase Storage (Bucket: specimens)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Validação simples de tipo de ficheiro
     if (!file.type.startsWith('image/')) {
       setErrorMessage('Por favor, selecione um arquivo de imagem válido.');
       return;
@@ -71,32 +71,36 @@ export default function SettingsView() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuário não autenticado.');
 
+      // Define um nome único para o ficheiro dentro da pasta de avatars
       const fileExt = file.name.split('.').pop();
       const fileName = `${user.id}-${Date.now()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
 
+      // Envia o ficheiro diretamente para o seu bucket 'specimens'
       const { error: uploadError } = await supabase.storage
         .from('specimens') 
         .upload(filePath, file, { cacheControl: '3600', upsert: true });
 
       if (uploadError) throw uploadError;
 
+      // Captura a URL pública gerada automaticamente pelo Supabase
       const { data: { publicUrl } } = supabase.storage
         .from('specimens')
         .getPublicUrl(filePath);
 
+      // Atualiza o estado da imagem para alimentar o preview em tempo real
       setImageUrl(publicUrl);
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2000);
+      setTimeout(() => setSaveSuccess(false), 2500);
     } catch (err: any) {
-      console.error('Erro no upload:', err);
-      setErrorMessage('Falha ao subir imagem. Verifique se o bucket "specimens" é público.');
+      console.error('Erro no upload da imagem:', err);
+      setErrorMessage('Falha ao subir imagem. Certifique-se de que o bucket "specimens" permite uploads.');
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Salva as alterações de forma sincronizada
+  // Salva as alterações finais (Nome, Cargo e a nova URL gerada pelo upload)
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -107,27 +111,19 @@ export default function SettingsView() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuário não autenticado.');
 
-      // 1. Força a atualização na tabela pública profiles primeiro
-      const { error: dbError } = await supabase
-        .from('profiles')
-        .update({ 
-          display_name: name, 
-          role: role, 
-          image_url: imageUrl 
-        })
-        .eq('id', user.id);
-      
-      if (dbError) {
-        console.warn('Nota de RLS: Tentando salvar via metadados secundários...');
+      // 1. Salva na tabela pública de profiles primeiro
+      try {
+        await supabase
+          .from('profiles')
+          .update({ display_name: name, role, image_url: imageUrl })
+          .eq('id', user.id);
+      } catch (dbErr) {
+        console.warn('Nota: Atualizando via metadados de autenticação principais...');
       }
 
-      // 2. Atualiza os metadados do Auth (Para atualizar o topo da página instantaneamente)
+      // 2. Salva nos metadados globais da sessão de autenticação
       const { error: authError } = await supabase.auth.updateUser({
-        data: { 
-          name: name, 
-          role: role, 
-          image_url: imageUrl 
-        }
+        data: { name, role, image_url: imageUrl }
       });
       if (authError) throw authError;
 
@@ -158,7 +154,7 @@ export default function SettingsView() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Painel Esquerdo: Preview */}
+        {/* Painel Esquerdo: Preview em Tempo Real */}
         <div className="p-6 bg-white border border-slate-100 rounded-[2rem] flex flex-col items-center text-center justify-center space-y-4 shadow-sm h-fit">
           <div className="w-24 h-24 rounded-3xl bg-slate-50 border-2 border-slate-200 overflow-hidden relative flex items-center justify-center text-slate-400 shadow-inner">
             {imageUrl ? (
@@ -180,6 +176,7 @@ export default function SettingsView() {
               <Shield size={14} /> Dados Cadastrais
             </h3>
 
+            {/* Input: Nome */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-600 block">Nome Completo</label>
               <input
@@ -192,6 +189,7 @@ export default function SettingsView() {
               />
             </div>
 
+            {/* Input: Cargo */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-600 block">Função / Cargo</label>
               <input
@@ -204,20 +202,11 @@ export default function SettingsView() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-600 block flex items-center gap-1.5">
-                <Image size={12} /> Foto de Perfil
-              </label>
+            {/* 📸 Opção Exclusiva de Importar Foto do Computador (URL removida) */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-600 block">Foto de Perfil</label>
               
-              <div className="flex gap-2">
-                <input
-                  type="url"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="Cole o link da foto ou importe um arquivo..."
-                  className="flex-1 p-3.5 bg-slate-50 rounded-2xl text-sm border border-transparent focus:bg-white focus:border-slate-200 outline-none font-medium text-slate-800 transition-all focus:ring-4 focus:ring-blue-500/5"
-                />
-                
+              <div className="flex items-center gap-4 p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl transition-all hover:bg-slate-100/70">
                 <input 
                   type="file" 
                   ref={fileInputRef} 
@@ -230,17 +219,26 @@ export default function SettingsView() {
                   type="button"
                   disabled={isUploading}
                   onClick={() => fileInputRef.current?.click()}
-                  className="px-4 bg-slate-100 border border-slate-200 text-slate-600 rounded-2xl hover:bg-slate-200 active:scale-95 transition-all flex items-center justify-center gap-1.5 text-xs font-bold shrink-0 cursor-pointer"
+                  className="px-5 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 active:scale-95 transition-all flex items-center gap-2 text-xs font-black shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
                 >
                   {isUploading ? (
-                    <Loader2 size={15} className="animate-spin text-blue-600" />
+                    <Loader2 size={16} className="animate-spin text-blue-600" />
                   ) : (
-                    <><Upload size={15} /><span>Importar</span></>
+                    <Upload size={16} className="text-slate-500" />
                   )}
+                  <span>{isUploading ? 'Enviando arquivo...' : 'Escolher foto do computador'}</span>
                 </button>
+
+                <div className="text-left min-w-0">
+                  <p className="text-[11px] text-slate-500 font-semibold truncate">
+                    {imageUrl ? '✓ Imagem pronta para salvar' : 'Nenhum arquivo selecionado'}
+                  </p>
+                  <p className="text-[9px] text-slate-400 font-medium">PNG, JPG ou GIF de até 5MB.</p>
+                </div>
               </div>
             </div>
 
+            {/* Mensagens de Feedback */}
             {saveSuccess && (
               <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-emerald-700 text-xs font-bold animate-in fade-in">
                 <CheckCircle2 size={16} className="shrink-0" />
@@ -255,6 +253,7 @@ export default function SettingsView() {
               </div>
             )}
 
+            {/* Botão Salvar */}
             <div className="pt-2">
               <button
                 type="submit"
