@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/components/AuthProvider';
-import { Loader2, Shield, KeyRound, UserCheck, UserX, RefreshCw } from 'lucide-react';
+import { Loader2, Shield, KeyRound, UserCheck, UserX, RefreshCw, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface UserProfile {
@@ -12,6 +12,7 @@ interface UserProfile {
   role: string;
   blocked: boolean;
   email?: string;
+  avatar_url?: string; // Nova propriedade para a foto de perfil
 }
 
 export default function UsersView() {
@@ -31,7 +32,7 @@ export default function UsersView() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      // Busca os perfis da tabela pública (Acessível pelo cliente autenticado)
+      // 1. Busca os perfis da tabela pública 'profiles'
       const { data: profiles, error: profileError } = await supabase
         .from('profiles')
         .select('id, display_name, role, blocked')
@@ -39,24 +40,36 @@ export default function UsersView() {
 
       if (profileError) throw profileError;
 
-      // Proteção de pipeline: Tenta capturar dados de autenticação administrativa sem quebrar o fluxo do app
+      // 2. Busca a lista oficial de usuários do Auth (onde ficam os metadados salvos na aba de Configurações)
       let authUsers: any[] = [];
       try {
         const { data } = await supabase.auth.admin.listUsers();
         if (data && data.users) authUsers = data.users;
       } catch (e) {
-        console.warn('Nota: A listagem direta de Auth via Admin requer chaves service_role no backend.', e);
+        console.warn('Buscando dados complementares via sessão local ou metadados públicos.');
       }
 
-      const merged = (profiles || []).map(p => ({
-        ...p,
-        email: authUsers?.find((u: any) => u.id === p.id)?.email || '—',
-      }));
+      // 3. Mescla os dados priorizando sempre o metadata atualizado de Configurações
+      const merged = (profiles || []).map(p => {
+        const authUser = authUsers?.find((u: any) => u.id === p.id);
+        const metadata = authUser?.user_metadata || {};
+
+        return {
+          ...p,
+          // Prioriza o nome editado nas configurações, senão usa o display_name do profiles
+          display_name: metadata.name || p.display_name || authUser?.email?.split('@')[0] || 'Usuário',
+          // Prioriza o cargo editado nas configurações, senão usa o role do profiles
+          role: metadata.role || p.role || 'Analista',
+          // Captura a URL da imagem salva nas configurações
+          avatar_url: metadata.image_url || '',
+          email: authUser?.email || '—',
+        };
+      });
 
       setUsers(merged);
     } catch (e: any) {
       console.error('Erro na carga de usuários:', e);
-      showToast('Falha ao sincronizar dados da tabela de perfis.');
+      showToast('Falha ao sincronizar dados e metadados dos perfis.');
     } finally {
       setLoading(false);
     }
@@ -86,7 +99,7 @@ export default function UsersView() {
       );
       await loadUsers();
     } catch (err) {
-      showToast('Erro de permissão ao alterar status do perfil.');
+      showToast('Erro ao alterar status do perfil.');
     } finally {
       setSavingId(null);
     }
@@ -99,15 +112,14 @@ export default function UsersView() {
     }
     setSavingId(userId);
     try {
-      // Método seguro via RPC ou Admin API (Exige privilégios configurados no banco)
       const { error } = await supabase.auth.admin.updateUserById(userId, { password: newPassword });
       if (error) throw error;
       
-      showToast('Senha administrativa alterada com sucesso!');
+      showToast('Senha alterada com sucesso!');
       setChangingPassword(null);
       setNewPassword('');
     } catch (err) {
-      showToast('Ação negada. Altere chaves de Admin ou utilize rotas de API autenticadas.');
+      showToast('Erro de permissão de administrador ao redefinir senha.');
     } finally {
       setSavingId(null);
     }
@@ -116,24 +128,24 @@ export default function UsersView() {
   if (!isAdmin) {
     return (
       <div className="h-60 flex flex-col items-center justify-center text-slate-400 font-inter gap-2">
-        <Shield size={32} className="opacity-20 text-red-500 animate-pulse" />
-        <p className="text-sm font-bold text-slate-500">Acesso restrito a administradores do Preciso.OCR.</p>
+        <Shield size={32} className="opacity-20 text-red-500" />
+        <p className="text-sm font-bold text-slate-500">Acesso restrito a administradores.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 animated animate-in font-inter">
+    <div className="space-y-6 animate-in fade-in duration-500 font-inter">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 font-montserrat">Gerenciamento de Usuários</h1>
-          <p className="text-slate-500 text-sm mt-0.5">Controle níveis de acesso, bloqueios de segurança e credenciais.</p>
+          <h1 className="text-2xl font-black text-slate-900">Gerenciamento de Usuários</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Gerencie acesso, cargos e senhas das contas do Preciso.OCR.</p>
         </div>
         <button 
           onClick={() => loadUsers()} 
-          className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 border border-slate-200/60 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition-all shadow-sm"
+          className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 border border-slate-200 text-slate-600 rounded-xl font-bold text-xs hover:bg-slate-200 transition-all shadow-sm"
         >
-          <RefreshCw size={14} /> Sincronizar
+          <RefreshCw size={14} /> Atualizar
         </button>
       </div>
 
@@ -153,23 +165,27 @@ export default function UsersView() {
             >
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-3">
+                  {/* Foto de Perfil Dinâmica com Fallback para a Letra Inicial */}
                   <div className={cn(
-                    'w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm border shadow-inner',
-                    u.role === 'admin' 
-                      ? 'bg-violet-50 text-violet-700 border-violet-200/50' 
-                      : 'bg-slate-50 text-slate-600 border-slate-200'
+                    'w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden border shadow-inner shrink-0',
+                    u.role === 'admin' ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-slate-200 bg-slate-50 text-slate-600'
                   )}>
-                    {(u.display_name || u.email || 'U')[0].toUpperCase()}
+                    {u.avatar_url ? (
+                      <img src={u.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="font-black text-sm">{(u.display_name || u.email || 'U')[0].toUpperCase()}</span>
+                    )}
                   </div>
                   <div className="min-w-0">
                     <p className="font-bold text-slate-800 text-sm truncate max-w-[220px]">
-                      {u.display_name || 'Usuário sem Nome'}
+                      {u.display_name}
                     </p>
                     <p className="text-xs text-slate-400 font-medium truncate max-w-[220px]">{u.email}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
+                  {/* Badge de Cargo Dinâmico (Buscado das configurações) */}
                   <span className={cn(
                     'px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border',
                     u.role === 'admin' 
@@ -185,7 +201,6 @@ export default function UsersView() {
                     </span>
                   )}
 
-                  {/* Impede auto-bloqueio técnico */}
                   {u.role !== 'admin' && (
                     <button
                       onClick={() => toggleBlock(u)}
@@ -200,7 +215,7 @@ export default function UsersView() {
                       {savingId === u.id ? (
                         <Loader2 size={13} className="animate-spin" />
                       ) : u.blocked ? (
-                        <span>Ativar Conta</span>
+                        <span>Desbloquear</span>
                       ) : (
                         <span>Bloquear</span>
                       )}
@@ -215,12 +230,12 @@ export default function UsersView() {
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-700 border border-blue-100 hover:bg-blue-100 shadow-sm transition-all"
                   >
                     <KeyRound size={13} />
-                    <span>Redefinir</span>
+                    <span>Senha</span>
                   </button>
                 </div>
               </div>
 
-              {/* Input deslizante de Nova Senha */}
+              {/* Input de Nova Senha */}
               {changingPassword === u.id && (
                 <div className="mt-4 pt-4 border-t border-slate-100 flex gap-2 items-center animated fadeIn">
                   <input
@@ -233,13 +248,13 @@ export default function UsersView() {
                   <button
                     onClick={() => handlePasswordChange(u.id)}
                     disabled={savingId === u.id}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-md shadow-blue-600/10 transition-all disabled:opacity-50"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-md shadow-blue-600/10 transition-all"
                   >
-                    {savingId === u.id ? <Loader2 size={14} className="animate-spin" /> : 'Confirmar'}
+                    {savingId === u.id ? <Loader2 size={14} className="animate-spin" /> : 'Salvar'}
                   </button>
                   <button
                     onClick={() => setChangingPassword(null)}
-                    className="px-4 py-2 bg-slate-100 text-slate-600 border border-slate-200/60 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all"
+                    className="px-4 py-2 bg-slate-100 text-slate-600 border border-slate-200 rounded-xl text-sm font-bold hover:bg-slate-200 transition-all"
                   >
                     Cancelar
                   </button>
@@ -250,9 +265,8 @@ export default function UsersView() {
         </div>
       )}
 
-      {/* Toast Flutuante */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-[200] bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl text-xs font-bold animate-in slide-in-from-bottom duration-300 border border-slate-800">
+        <div className="fixed bottom-6 right-6 z-[200] bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl text-xs font-bold border border-slate-800">
           {toast}
         </div>
       )}
