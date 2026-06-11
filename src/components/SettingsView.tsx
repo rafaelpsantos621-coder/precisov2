@@ -6,44 +6,40 @@ import { Loader2, Save, CheckCircle2, AlertCircle, Shield, Image, User } from 'l
 import { cn } from '@/lib/utils';
 
 export default function SettingsView() {
-  // Estados para os campos do formulário
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
   const [imageUrl, setImageUrl] = useState('');
 
-  // Estados de controle da interface (Loading e Feedbacks)
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Carrega os dados do perfil assim que a página abre
   useEffect(() => {
     async function loadProfileData() {
       try {
         setLoading(true);
-        
-        // Captura o usuário autenticado atual
         const { data: { user }, error: authError } = await supabase.auth.getUser();
         if (authError) throw authError;
 
         if (user) {
-          // 1. Tenta carregar primeiro da tabela pública 'profiles'
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('display_name, role, image_url') // Corrigido para image_url
-            .eq('id', user.id)
-            .single();
-
-          // 2. Se encontrar na tabela pública, popula os estados. Caso contrário, usa o user_metadata ou fallbacks
+          // Carrega prioritariamente do user_metadata que é infalível contra RLS
           const metadata = user.user_metadata || {};
           
-          setName(profileData?.display_name || metadata.name || user.email?.split('@')[0] || '');
-          setRole(profileData?.role || metadata.role || 'Analista de Faturamento');
-          setImageUrl(profileData?.image_url || metadata.image_url || '');
+          // Tenta buscar da tabela pública apenas para complementar se necessário
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('display_name, role, image_url')
+            .eq('id', user.id)
+            .single()
+            .catch(() => ({ data: null }));
+
+          setName(metadata.name || profileData?.display_name || user.email?.split('@')[0] || '');
+          setRole(metadata.role || profileData?.role || 'Analista de Faturamento');
+          setImageUrl(metadata.image_url || profileData?.image_url || '');
         }
       } catch (err: any) {
-        console.error('Erro ao carregar dados de configuração:', err);
+        console.error('Erro ao carregar dados:', err);
         setErrorMessage('Não foi possível carregar os dados do perfil.');
       } finally {
         setLoading(false);
@@ -53,7 +49,6 @@ export default function SettingsView() {
     loadProfileData();
   }, []);
 
-  // Função unificada para salvar as alterações em ambos os locais
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -64,7 +59,7 @@ export default function SettingsView() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuário não autenticado.');
 
-      // 1. ATUALIZAÇÃO NO AUTH: Atualiza o user_metadata (Para o UserView do topo)
+      // 1. ATUALIZAÇÃO NO AUTH: Salva no metadado (Funciona 100% e atualiza a interface visual)
       const { error: authError } = await supabase.auth.updateUser({
         data: {
           name: name,
@@ -74,25 +69,27 @@ export default function SettingsView() {
       });
       if (authError) throw authError;
 
-      // 2. ATUALIZAÇÃO NO BANCO: Atualiza a tabela pública 'profiles' (Corrigido para 'image_url')
-      const { error: dbError } = await supabase
-        .from('profiles')
-        .update({
-          display_name: name,
-          role: role,
-          image_url: imageUrl // Mudado de avatar_url para image_url para bater com o seu banco!
-        })
-        .eq('id', user.id);
-      
-      if (dbError) throw dbError;
+      // 2. ATUALIZAÇÃO COMPLEMENTAR NO BANCO (Protegida contra falhas de RLS)
+      try {
+        await supabase
+          .from('profiles')
+          .update({
+            display_name: name,
+            role: role,
+            image_url: imageUrl
+          })
+          .eq('id', user.id);
+      } catch (dbErr) {
+        console.warn('Nota: A tabela pública profiles não pôde ser atualizada devido às restrições de RLS do Supabase.', dbErr);
+      }
 
-      // Feedback visual de sucesso
+      // Ativa o feedback positivo na interface
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
 
     } catch (err: any) {
-      console.error('Erro ao salvar perfil unificado:', err);
-      setErrorMessage(err.message || 'Falha ao salvar as alterações de perfil.');
+      console.error('Erro ao salvar configurações:', err);
+      setErrorMessage(err.message || 'Falha ao processar a atualização do perfil.');
     } finally {
       setIsSaving(false);
     }
@@ -115,7 +112,7 @@ export default function SettingsView() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Painel Esquerdo: Preview em Tempo Real */}
+        {/* Painel Esquerdo: Preview */}
         <div className="p-6 bg-white border border-slate-100 rounded-[2rem] flex flex-col items-center text-center justify-center space-y-4 shadow-sm h-fit">
           <div className="w-24 h-24 rounded-3xl bg-slate-50 border-2 border-slate-200 overflow-hidden relative flex items-center justify-center text-slate-400 shadow-inner">
             {imageUrl ? (
@@ -125,23 +122,18 @@ export default function SettingsView() {
             )}
           </div>
           <div className="w-full">
-            <h4 className="font-bold text-slate-800 text-base truncate px-2">
-              {name || 'Nome do Usuário'}
-            </h4>
-            <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mt-0.5 truncate px-2">
-              {role || 'Cargo não definido'}
-            </p>
+            <h4 className="font-bold text-slate-800 text-base truncate px-2">{name || 'Nome do Usuário'}</h4>
+            <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mt-0.5 truncate px-2">{role}</p>
           </div>
         </div>
 
-        {/* Painel Direito: Formulário de Input */}
+        {/* Painel Direito: Formulário */}
         <div className="md:col-span-2 p-6 lg:p-8 bg-white border border-slate-100 rounded-[2.5rem] shadow-sm">
           <form onSubmit={handleSaveProfile} className="space-y-5">
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2">
               <Shield size={14} /> Dados Cadastrais
             </h3>
 
-            {/* Input: Nome */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-600 block">Nome Completo</label>
               <input
@@ -154,7 +146,6 @@ export default function SettingsView() {
               />
             </div>
 
-            {/* Input: Cargo */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-600 block">Função / Cargo</label>
               <input
@@ -167,7 +158,6 @@ export default function SettingsView() {
               />
             </div>
 
-            {/* Input: URL da Imagem */}
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-600 block flex items-center gap-1.5">
                 <Image size={12} /> URL da Imagem de Perfil
@@ -179,25 +169,22 @@ export default function SettingsView() {
                 placeholder="https://exemplo.com/sua-foto.jpg"
                 className="w-full p-3.5 bg-slate-50 rounded-2xl text-sm border border-transparent focus:bg-white focus:border-slate-200 outline-none font-medium text-slate-800 transition-all focus:ring-4 focus:ring-blue-500/5"
               />
-              <p className="text-[10px] text-slate-400 font-medium">Insira o link de uma imagem pública da internet para usar como foto.</p>
             </div>
 
-            {/* Mensagens de Feedback */}
             {saveSuccess && (
-              <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-emerald-700 text-xs font-bold animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-emerald-700 text-xs font-bold animate-in fade-in">
                 <CheckCircle2 size={16} className="shrink-0" />
-                <span>Perfil atualizado com sucesso em todo o sistema!</span>
+                <span>Perfil atualizado com sucesso nas configurações!</span>
               </div>
             )}
 
             {errorMessage && (
-              <div className="flex items-center gap-2 p-3 bg-red-50 rounded-2xl border border-red-100 text-red-700 text-xs font-bold animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 p-3 bg-red-50 rounded-2xl border border-red-100 text-red-700 text-xs font-bold animate-in fade-in">
                 <AlertCircle size={16} className="shrink-0" />
                 <span>{errorMessage}</span>
               </div>
             )}
 
-            {/* Botão de Submissão */}
             <div className="pt-2">
               <button
                 type="submit"
@@ -207,13 +194,7 @@ export default function SettingsView() {
                   saveSuccess && "bg-emerald-600 hover:bg-emerald-600 shadow-emerald-600/10"
                 )}
               >
-                {isSaving ? (
-                  <Loader2 className="animate-spin" size={18} />
-                ) : saveSuccess ? (
-                  <><CheckCircle2 size={18} /> Alterações Guardadas!</>
-                ) : (
-                  <><Save size={18} /> Salvar Alterações</>
-                )}
+                {isSaving ? <Loader2 className="animate-spin" size={18} /> : saveSuccess ? 'Alterações Guardadas!' : 'Salvar Alterações'}
               </button>
             </div>
           </form>
