@@ -1,20 +1,26 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Loader2, Save, CheckCircle2, AlertCircle, Shield, Image, User } from 'lucide-react';
+import { Loader2, Save, CheckCircle2, AlertCircle, Shield, Image, Upload, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function SettingsView() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Estados do formulário
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
   const [imageUrl, setImageUrl] = useState('');
 
+  // Estados de controlo
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Carrega os dados iniciais do utilizador
   useEffect(() => {
     async function loadProfileData() {
       try {
@@ -23,10 +29,7 @@ export default function SettingsView() {
         if (authError) throw authError;
 
         if (user) {
-          // Carrega prioritariamente do user_metadata que é infalível contra RLS
-          const metadata = user.user_metadata || {};
-          
-          // Tenta buscar da tabela pública apenas para complementar se necessário
+          // Busca primeiro da tabela pública profiles que agora está corrigida
           const { data: profileData } = await supabase
             .from('profiles')
             .select('display_name, role, image_url')
@@ -34,9 +37,11 @@ export default function SettingsView() {
             .single()
             .catch(() => ({ data: null }));
 
-          setName(metadata.name || profileData?.display_name || user.email?.split('@')[0] || '');
-          setRole(metadata.role || profileData?.role || 'Analista de Faturamento');
-          setImageUrl(metadata.image_url || profileData?.image_url || '');
+          const metadata = user.user_metadata || {};
+          
+          setName(profileData?.display_name || metadata.name || user.email?.split('@')[0] || '');
+          setRole(profileData?.role || metadata.role || 'Analista de Faturamento');
+          setImageUrl(profileData?.image_url || metadata.image_url || '');
         }
       } catch (err: any) {
         console.error('Erro ao carregar dados:', err);
@@ -49,6 +54,49 @@ export default function SettingsView() {
     loadProfileData();
   }, []);
 
+  // Upload para o bucket specimens
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setErrorMessage('Por favor, selecione um arquivo de imagem válido.');
+      return;
+    }
+
+    setIsUploading(true);
+    setErrorMessage(null);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Usuário não autenticado.');
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('specimens') 
+        .upload(filePath, file, { cacheControl: '3600', upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('specimens')
+        .getPublicUrl(filePath);
+
+      setImageUrl(publicUrl);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
+    } catch (err: any) {
+      console.error('Erro no upload:', err);
+      setErrorMessage('Falha ao subir imagem. Verifique se o bucket "specimens" é público.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // Salva as alterações de forma sincronizada
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -59,36 +107,34 @@ export default function SettingsView() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Usuário não autenticado.');
 
-      // 1. ATUALIZAÇÃO NO AUTH: Salva no metadado (Funciona 100% e atualiza a interface visual)
+      // 1. Força a atualização na tabela pública profiles primeiro
+      const { error: dbError } = await supabase
+        .from('profiles')
+        .update({ 
+          display_name: name, 
+          role: role, 
+          image_url: imageUrl 
+        })
+        .eq('id', user.id);
+      
+      if (dbError) {
+        console.warn('Nota de RLS: Tentando salvar via metadados secundários...');
+      }
+
+      // 2. Atualiza os metadados do Auth (Para atualizar o topo da página instantaneamente)
       const { error: authError } = await supabase.auth.updateUser({
-        data: {
-          name: name,
-          role: role,
-          image_url: imageUrl,
+        data: { 
+          name: name, 
+          role: role, 
+          image_url: imageUrl 
         }
       });
       if (authError) throw authError;
 
-      // 2. ATUALIZAÇÃO COMPLEMENTAR NO BANCO (Protegida contra falhas de RLS)
-      try {
-        await supabase
-          .from('profiles')
-          .update({
-            display_name: name,
-            role: role,
-            image_url: imageUrl
-          })
-          .eq('id', user.id);
-      } catch (dbErr) {
-        console.warn('Nota: A tabela pública profiles não pôde ser atualizada devido às restrições de RLS do Supabase.', dbErr);
-      }
-
-      // Ativa o feedback positivo na interface
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-
     } catch (err: any) {
-      console.error('Erro ao salvar configurações:', err);
+      console.error('Erro ao salvar perfil:', err);
       setErrorMessage(err.message || 'Falha ao processar a atualização do perfil.');
     } finally {
       setIsSaving(false);
@@ -160,21 +206,45 @@ export default function SettingsView() {
 
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-slate-600 block flex items-center gap-1.5">
-                <Image size={12} /> URL da Imagem de Perfil
+                <Image size={12} /> Foto de Perfil
               </label>
-              <input
-                type="url"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="https://exemplo.com/sua-foto.jpg"
-                className="w-full p-3.5 bg-slate-50 rounded-2xl text-sm border border-transparent focus:bg-white focus:border-slate-200 outline-none font-medium text-slate-800 transition-all focus:ring-4 focus:ring-blue-500/5"
-              />
+              
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="Cole o link da foto ou importe um arquivo..."
+                  className="flex-1 p-3.5 bg-slate-50 rounded-2xl text-sm border border-transparent focus:bg-white focus:border-slate-200 outline-none font-medium text-slate-800 transition-all focus:ring-4 focus:ring-blue-500/5"
+                />
+                
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  onChange={handleFileUpload} 
+                  accept="image/*" 
+                  className="hidden" 
+                />
+
+                <button
+                  type="button"
+                  disabled={isUploading}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 bg-slate-100 border border-slate-200 text-slate-600 rounded-2xl hover:bg-slate-200 active:scale-95 transition-all flex items-center justify-center gap-1.5 text-xs font-bold shrink-0 cursor-pointer"
+                >
+                  {isUploading ? (
+                    <Loader2 size={15} className="animate-spin text-blue-600" />
+                  ) : (
+                    <><Upload size={15} /><span>Importar</span></>
+                  )}
+                </button>
+              </div>
             </div>
 
             {saveSuccess && (
               <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-emerald-700 text-xs font-bold animate-in fade-in">
                 <CheckCircle2 size={16} className="shrink-0" />
-                <span>Perfil atualizado com sucesso nas configurações!</span>
+                <span>Perfil atualizado com sucesso!</span>
               </div>
             )}
 
@@ -188,13 +258,10 @@ export default function SettingsView() {
             <div className="pt-2">
               <button
                 type="submit"
-                disabled={isSaving}
-                className={cn(
-                  "w-full flex items-center justify-center gap-2 transition-all py-3.5 rounded-2xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/10 active:scale-[0.99]",
-                  saveSuccess && "bg-emerald-600 hover:bg-emerald-600 shadow-emerald-600/10"
-                )}
+                disabled={isSaving || isUploading}
+                className="w-full flex items-center justify-center gap-2 transition-all py-3.5 rounded-2xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/10 active:scale-[0.99] disabled:opacity-50 cursor-pointer"
               >
-                {isSaving ? <Loader2 className="animate-spin" size={18} /> : saveSuccess ? 'Alterações Guardadas!' : 'Salvar Alterações'}
+                {isSaving ? <Loader2 className="animate-spin" size={18} /> : 'Salvar Alterações'}
               </button>
             </div>
           </form>
