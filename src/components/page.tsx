@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import { supabase } from "@/lib/supabase"; // Importado para escutar as atualizações
 import { cn } from "@/lib/utils";
 import { BarChart3, UploadCloud, LayoutGrid, ClipboardCheck, Settings, LogOut, ChevronRight, User as UserIcon, Search, Menu, X, Users } from "lucide-react";
 import DashboardView from "@/components/DashboardView";
@@ -21,6 +22,13 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Estado dinâmico para espelhar as alterações do perfil instantaneamente
+  const [liveProfile, setLiveProfile] = useState({
+    name: '',
+    role: '',
+    image: ''
+  });
+
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth < 1024) setSidebarOpen(false);
@@ -30,6 +38,32 @@ export default function App() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  // Monitora as atualizações de metadados do usuário em tempo real
+  useEffect(() => {
+    if (user) {
+      const metadata = user.user_metadata || {};
+      setLiveProfile({
+        name: metadata.name || metadata.full_name || user.email?.split('@')[0] || 'Analista',
+        role: metadata.role || (isAdmin ? 'Administrador' : 'Operador'),
+        image: metadata.image_url || metadata.avatar_url || ''
+      });
+    }
+
+    // Cria um canal direto de eventos: quando salvar na outra tela, esse bloco atualiza aqui na hora
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const metadata = session.user.user_metadata || {};
+        setLiveProfile({
+          name: metadata.name || metadata.full_name || session.user.email?.split('@')[0] || 'Analista',
+          role: metadata.role || (isAdmin ? 'Administrador' : 'Operador'),
+          image: metadata.image_url || metadata.avatar_url || ''
+        });
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [user, isAdmin]);
 
   if (loading) return null;
   if (!user) return <LoginPage />;
@@ -80,7 +114,7 @@ export default function App() {
             <button key={item.id}
               onClick={() => { setActiveView(item.id as ViewType); if (window.innerWidth < 1024) setIsMobileMenuOpen(false); }}
               className={cn(
-                "w-full flex items-center gap-3.5 px-3.5 py-3 rounded-xl transition-all group relative font-medium",
+                "w-full flex items-center gap-3.5 px-3.5 py-3 rounded-xl transition-all group relative font-medium cursor-pointer",
                 activeView === item.id
                   ? item.id === 'users'
                     ? "bg-violet-600 text-white shadow-xl shadow-violet-600/20"
@@ -92,7 +126,6 @@ export default function App() {
               {(isSidebarOpen || isMobileMenuOpen) && (
                 <span className="text-sm tracking-wide">{item.label}</span>
               )}
-              {/* Badge ADMIN na aba usuários */}
               {item.id === 'users' && (isSidebarOpen || isMobileMenuOpen) && (
                 <span className="ml-auto text-[8px] font-black uppercase tracking-widest bg-violet-500/30 text-violet-200 px-2 py-0.5 rounded-full">
                   Admin
@@ -109,28 +142,29 @@ export default function App() {
 
         <div className="p-4 mt-auto border-t border-slate-800/50">
           <button onClick={signOut}
-            className={cn("w-full flex items-center gap-3.5 px-3.5 py-3 rounded-xl hover:bg-red-500 group transition-all duration-300 text-slate-500 hover:text-white mb-4",
+            className={cn("w-full flex items-center gap-3.5 px-3.5 py-3 rounded-xl hover:bg-red-500 group transition-all duration-300 text-slate-500 hover:text-white mb-4 cursor-pointer",
               !isSidebarOpen && !isMobileMenuOpen && "justify-center px-0")}>
             <LogOut size={20} className="shrink-0 transition-transform group-hover:translate-x-1" />
             {(isSidebarOpen || isMobileMenuOpen) && <span className="text-sm font-bold">Sair do Sistema</span>}
           </button>
 
+          {/* 🟡 Cartão Reativo Corrigido */}
           <div className={cn("flex items-center gap-3 p-2 rounded-2xl bg-slate-800/30 border border-slate-700/30 transition-all",
             !isSidebarOpen && !isMobileMenuOpen && "justify-center p-1")}>
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white shrink-0 shadow-lg">
-              {user.user_metadata?.avatar_url ? (
-                <img src={user.user_metadata.avatar_url} alt="Profile" className="w-full h-full object-cover rounded-xl" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white shrink-0 shadow-lg overflow-hidden border border-slate-700">
+              {liveProfile.image ? (
+                <img src={liveProfile.image} alt="Profile" className="w-full h-full object-cover" />
               ) : <UserIcon size={18} />}
             </div>
             {(isSidebarOpen || isMobileMenuOpen) && (
-              <div className="overflow-hidden">
+              <div className="overflow-hidden text-left">
                 <p className="text-sm font-black text-white truncate tracking-tight">
-                  {user.user_metadata?.full_name || user.email?.split('@')[0] || 'Analista'}
+                  {liveProfile.name}
                 </p>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 mt-0.5">
                   <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                  <p className="text-[10px] text-slate-500 font-bold uppercase">
-                    {isAdmin ? 'Administrador' : 'Operador'}
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">
+                    {liveProfile.role}
                   </p>
                 </div>
               </div>
@@ -144,7 +178,7 @@ export default function App() {
         <header className="h-16 lg:h-20 bg-white border-b border-slate-200 px-4 lg:px-8 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-4 flex-1 max-w-xl">
             <button onClick={() => setIsMobileMenuOpen(true)}
-              className="p-2 -ml-2 lg:hidden text-slate-600 hover:bg-slate-100 rounded-lg">
+              className="p-2 -ml-2 lg:hidden text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer">
               <Menu size={24} />
             </button>
             <div className="relative flex-1">
