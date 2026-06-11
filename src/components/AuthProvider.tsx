@@ -1,113 +1,83 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { createContext, useContext, useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
 import { User } from '@supabase/supabase-js';
 
-interface AuthContextType {
+type AuthContextType = {
   user: User | null;
   role: string | null;
   isAdmin: boolean;
   loading: boolean;
-  signInWithEmail: (email: string, password: string) => Promise<{ error: any }>;
-  signUpWithEmail: (email: string, password: string) => Promise<{ error: any }>;
   signOut: () => Promise<void>;
-}
+};
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  role: null,
+  isAdmin: false,
+  loading: true,
+  signOut: async () => {},
+});
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const loadProfile = async (userId: string) => {
-    try {
-      const { data } = await supabase
+  const handleUserSession = async (currentUser: User | null) => {
+    setUser(currentUser);
+    
+    if (currentUser) {
+      // Busca a função/cargo direto do perfil para garantir consistência global
+      const { data: profile } = await supabase
         .from('profiles')
-        .select('role, blocked')
-        .eq('id', userId)
-        .single();
+        .select('role')
+        .eq('id', currentUser.id)
+        .single()
+        .catch(() => ({ data: null }));
 
-      if (data?.blocked) {
-        await supabase.auth.signOut();
-        setUser(null);
-        setRole(null);
-        return;
-      }
-
-      setRole(data?.role || 'analista');
-    } catch {
-      setRole('analista');
+      const userRole = profile?.role || currentUser.user_metadata?.role || 'OPERADOR';
+      setRole(userRole);
+    } else {
+      setRole(null);
     }
+    setLoading(false);
   };
 
   useEffect(() => {
-    if (!isSupabaseConfigured()) { setLoading(false); return; }
-
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        if (error.message.includes('Refresh Token Not Found') || error.message.includes('invalid refresh token')) {
-          supabase.auth.signOut();
-          for (const key in localStorage) {
-            if (key.includes('supabase.auth.token')) localStorage.removeItem(key);
-          }
-        }
-        setUser(null);
-      } else if (session?.user) {
-        setUser(session.user);
-        loadProfile(session.user.id);
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
+    // Carrega a sessão inicial
+    supabase.auth.getUser().then(({ data: { user: initialUser } }) => {
+      handleUserSession(initialUser);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+    // ⚡ A CHAVE DA SOLUÇÃO: Escuta alterações na sessão (USER_UPDATED) em tempo real
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_OUT') {
         setUser(null);
         setRole(null);
+        setLoading(false);
       } else if (session?.user) {
-        setUser(session.user);
-        loadProfile(session.user.id);
-      } else {
-        setUser(null);
+        // Se o usuário atualizou o perfil (USER_UPDATED) ou mudou o estado, renova o Context global
+        await handleUserSession(session.user);
       }
-      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  const signInWithEmail = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
+  const signOut = async () => {
+    setLoading(true);
+    await supabase.auth.signOut();
   };
 
-  const signUpWithEmail = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password });
-    return { error };
-  };
-
-  const signOut = async () => { await supabase.auth.signOut(); };
+  const isAdmin = role?.toUpperCase() === 'ADMINISTRADOR' || role?.toUpperCase() === 'ADMIN';
 
   return (
-    <AuthContext.Provider value={{
-      user,
-      role,
-      isAdmin: role === 'admin',
-      loading,
-      signInWithEmail,
-      signUpWithEmail,
-      signOut
-    }}>
+    <AuthContext.Provider value={{ user, role, isAdmin, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   );
 }
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider');
-  return context;
-};
+export const useAuth = () => useContext(AuthContext);
