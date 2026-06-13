@@ -4,16 +4,18 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
-import { BarChart3, UploadCloud, LayoutGrid, ClipboardCheck, Settings, LogOut, ChevronRight, User as UserIcon, Search, Menu, X, Users } from "lucide-react";
+import { BarChart3, UploadCloud, LayoutGrid, ClipboardCheck, Settings, LogOut, ChevronRight, User as UserIcon, Search, Menu, X, Users, FileBarChart } from "lucide-react";
 import DashboardView from "@/components/DashboardView";
 import ImportView from "@/components/ImportView";
 import GalleryView from "@/components/GalleryView";
 import SettingsView from "@/components/SettingsView";
 import UsersView from "@/components/UsersView";
+import ReportsView from "@/components/ReportsView"; // Novo componente importado
 import LoginPage from "@/components/LoginPage";
 import NotificationDropdown from "@/components/NotificationDropdown";
 
-type ViewType = 'dashboard' | 'import' | 'gallery' | 'settings' | 'users';
+// Adicionado 'reports' aos tipos de abas
+type ViewType = 'dashboard' | 'import' | 'gallery' | 'settings' | 'users' | 'reports';
 
 export default function App() {
   const { user, isAdmin, loading, signOut } = useAuth();
@@ -22,10 +24,9 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // ⚡ Estado reativo local isolado para a Sidebar se atualizar em tempo real
   const [sidebarUser, setSidebarUser] = useState({
-    name: 'Analista',
-    role: 'Operador',
+    name: 'admin',
+    role: 'OPERADOR',
     image: ''
   });
 
@@ -39,48 +40,40 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // ⚡ Sincronizador de metadados em tempo real
+  const syncSidebarData = (currentUser: any) => {
+    if (currentUser) {
+      const metadata = currentUser.user_metadata || {};
+      setSidebarUser({
+        name: metadata.name || metadata.display_name || metadata.full_name || currentUser.email?.split('@')[0] || 'admin',
+        role: metadata.role || (isAdmin ? 'ADMINISTRADOR' : 'OPERADOR'),
+        image: metadata.image_url || metadata.image || metadata.avatar_url || ''
+      });
+    }
+  };
+
   useEffect(() => {
-    async function loadFreshSession() {
-      // Pega a sessão atualizada direto do cliente do Supabase
-      const { data: { session } } = await supabase.auth.getSession();
-      const targetUser = session?.user || user;
-      
-      if (targetUser) {
-        const metadata = targetUser.user_metadata || {};
-        setSidebarUser({
-          // Lê as chaves exatas que salvamos na tela de configurações
-          name: metadata.name || metadata.display_name || metadata.full_name || targetUser.email?.split('@')[0] || 'Analista',
-          role: metadata.role || (isAdmin ? 'Administrador' : 'Operador'),
-          image: metadata.image_url || metadata.image || metadata.avatar_url || ''
-        });
-      }
+    if (user) {
+      syncSidebarData(user);
     }
 
-    loadFreshSession();
-
-    // Intercepta o evento no milissegundo em que o updateUser roda no SettingsView
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
-        const metadata = session.user.user_metadata || {};
-        setSidebarUser({
-          name: metadata.name || metadata.display_name || metadata.full_name || session.user.email?.split('@')[0] || 'Analista',
-          role: metadata.role || (isAdmin ? 'Administrador' : 'Operador'),
-          image: metadata.image_url || metadata.image || metadata.avatar_url || ''
-        });
+        syncSidebarData(session.user);
       }
     });
 
     return () => subscription.unsubscribe();
-  }, [user, activeView, isAdmin]); // Dispara também ao alternar abas
+  }, [user, activeView, isAdmin]);
 
   if (loading) return null;
   if (!user) return <LoginPage />;
 
+  // Menu de navegação atualizado com a aba de Relatórios
   const navItems = [
     { id: 'dashboard', label: 'Painel', icon: BarChart3 },
     { id: 'import', label: 'Importação', icon: UploadCloud },
     { id: 'gallery', label: 'Galeria', icon: LayoutGrid },
+    { id: 'reports', label: 'Relatórios', icon: FileBarChart }, // Nova aba aqui
     { id: 'settings', label: 'Configurações', icon: Settings },
     ...(isAdmin ? [{ id: 'users', label: 'Usuários', icon: Users }] : []),
   ];
@@ -157,7 +150,6 @@ export default function App() {
             {(isSidebarOpen || isMobileMenuOpen) && <span className="text-sm font-bold">Sair do Sistema</span>}
           </button>
 
-          {/* 🟡 CARTÃO SINCRONIZADO VIA SESSÃO ATIVA */}
           <div className={cn("flex items-center gap-3 p-2 rounded-2xl bg-slate-800/30 border border-slate-700/30 transition-all",
             !isSidebarOpen && !isMobileMenuOpen && "justify-center p-1")}>
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white shrink-0 shadow-lg overflow-hidden border border-slate-700">
@@ -213,6 +205,7 @@ export default function App() {
             {activeView === 'dashboard' && <DashboardView />}
             {activeView === 'import' && <ImportView onComplete={() => setActiveView('gallery')} />}
             {activeView === 'gallery' && <GalleryView query={searchQuery} />}
+            {activeView === 'reports' && <ReportsView />} {/* Renderização da nova aba */}
             {activeView === 'settings' && <SettingsView />}
             {activeView === 'users' && <UsersView />}
           </div>
