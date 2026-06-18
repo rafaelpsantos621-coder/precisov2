@@ -1,271 +1,202 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
+import { useAuth } from './AuthProvider';
 import { supabase } from '@/lib/supabase';
-import { Loader2, Save, CheckCircle2, AlertCircle, Shield, Upload, User } from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 export default function SettingsView() {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Estados do formulário
+  const { user } = useAuth();
   const [name, setName] = useState('');
-  const [role, setRole] = useState('');
+  const [role, setRole] = useState('OPERADOR');
   const [imageUrl, setImageUrl] = useState('');
-
-  // Estados de controlo
-  const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
-  // Carrega os dados iniciais do utilizador
   useEffect(() => {
-    async function loadProfileData() {
+    async function loadProfile() {
+      if (!user) return;
+
+      let profileData = null;
+
       try {
-        setLoading(true);
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
-        if (authError) throw authError;
+        // Correção do erro da imagem_8349e5.png: consulta limpa sem .catch() encadeado
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('display_name, role, image_url')
+          .eq('id', user.id)
+          .single();
 
-        if (user) {
-          const { data: profileData } = await supabase
-            .from('profiles')
-            .select('display_name, role, image_url')
-            .eq('id', user.id)
-            .single()
-            .catch(() => ({ data: null }));
-
-          const metadata = user.user_metadata || {};
-          
-          setName(profileData?.display_name || metadata.name || user.email?.split('@')[0] || '');
-          setRole(profileData?.role || metadata.role || 'Analista de Faturamento');
-          setImageUrl(profileData?.image_url || metadata.image_url || '');
+        if (!error) {
+          profileData = data;
         }
-      } catch (err: any) {
-        console.error('Erro ao carregar dados:', err);
-        setErrorMessage('Não foi possível carregar os dados do perfil.');
-      } finally {
-        setLoading(false);
+      } catch (err) {
+        console.warn('Erro ao buscar perfil na tabela pública:', err);
       }
+
+      const metadata = user.user_metadata || {};
+      
+      setName(profileData?.display_name || metadata.name || metadata.full_name || '');
+      setRole(profileData?.role || metadata.role || 'OPERADOR');
+      setImageUrl(profileData?.image_url || metadata.image_url || metadata.avatar_url || '');
     }
 
-    loadProfileData();
-  }, []);
+    loadProfile();
+  }, [user]);
 
-  // Função para gerir o upload do ficheiro local para o Supabase Storage (Bucket: specimens)
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validação simples de tipo de ficheiro
-    if (!file.type.startsWith('image/')) {
-      setErrorMessage('Por favor, selecione um arquivo de imagem válido.');
-      return;
-    }
-
-    setIsUploading(true);
-    setErrorMessage(null);
-
+  // Função para importar e fazer upload da imagem do perfil localmente
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Usuário não autenticado.');
+      setUploading(true);
+      if (!e.target.files || e.target.files.length === 0) {
+        throw new Error('Você deve selecionar uma imagem para importar.');
+      }
 
-      // Define um nome único para o ficheiro dentro da pasta de avatars
+      const file = e.target.files[0];
       const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+      const fileName = `${user?.id}-${Math.random()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
 
-      // Envia o ficheiro diretamente para o seu bucket 'specimens'
+      // Envia o arquivo para o bucket do Supabase Storage
       const { error: uploadError } = await supabase.storage
-        .from('specimens') 
-        .upload(filePath, file, { cacheControl: '3600', upsert: true });
+        .from('profiles')
+        .upload(filePath, file, { upsert: true });
 
       if (uploadError) throw uploadError;
 
-      // Captura a URL pública gerada automaticamente pelo Supabase
+      // Pega a URL pública da imagem recém-importada
       const { data: { publicUrl } } = supabase.storage
-        .from('specimens')
+        .from('profiles')
         .getPublicUrl(filePath);
 
-      // Atualiza o estado da imagem para alimentar o preview em tempo real
       setImageUrl(publicUrl);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 2500);
-    } catch (err: any) {
-      console.error('Erro no upload da imagem:', err);
-      setErrorMessage('Falha ao subir imagem. Certifique-se de que o bucket "specimens" permite uploads.');
+    } catch (error: any) {
+      alert(error.message || 'Erro ao importar imagem.');
     } finally {
-      setIsUploading(false);
+      setUploading(false);
     }
   };
 
-  // Salva as alterações finais (Nome, Cargo e a nova URL gerada pelo upload)
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    setErrorMessage(null);
     setSaveSuccess(false);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Usuário não autenticado.');
+      if (!user) return;
 
-      // 1. Salva na tabela pública de profiles primeiro
-      try {
-        await supabase
-          .from('profiles')
-          .update({ display_name: name, role, image_url: imageUrl })
-          .eq('id', user.id);
-      } catch (dbErr) {
-        console.warn('Nota: Atualizando via metadados de autenticação principais...');
-      }
-
-      // 2. Salva nos metadados globais da sessão de autenticação
+      // 1. Atualiza os metadados de Autenticação
       const { error: authError } = await supabase.auth.updateUser({
-        data: { name, role, image_url: imageUrl }
+        data: { 
+          name: name,
+          role: role,
+          image_url: imageUrl
+        }
       });
       if (authError) throw authError;
 
+      // 2. Atualiza a tabela pública 'profiles'
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .upsert({
+          id: user.id,
+          display_name: name,
+          role: role,
+          image_url: imageUrl,
+          updated_at: new Date().toISOString(),
+        });
+
+      if (profileError) throw profileError;
+
       setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: any) {
-      console.error('Erro ao salvar perfil:', err);
-      setErrorMessage(err.message || 'Falha ao processar a atualização do perfil.');
+      console.error(err);
+      alert(err.message || 'Erro ao salvar alterações.');
     } finally {
       setIsSaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="h-[50vh] flex flex-col items-center justify-center">
-        <Loader2 className="w-10 h-10 text-blue-600 animate-spin mb-2" />
-        <p className="text-slate-500 font-medium">Carregando configurações...</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="max-w-3xl mx-auto space-y-6 animate-in fade-in duration-500 font-inter">
+    <div className="p-6 max-w-2xl mx-auto bg-white rounded-xl shadow-md space-y-6">
       <div>
-        <h2 className="text-2xl font-black text-slate-900">Configurações do Perfil</h2>
-        <p className="text-sm text-slate-500">Atualize as suas informações de exibição no ecossistema Preciso.OCR.</p>
+        <h2 className="text-2xl font-bold text-gray-900">Configurações do Perfil</h2>
+        <p className="text-sm text-gray-500">Gerencie suas informações de exibição e imagem de avatar.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Painel Esquerdo: Preview em Tempo Real */}
-        <div className="p-6 bg-white border border-slate-100 rounded-[2rem] flex flex-col items-center text-center justify-center space-y-4 shadow-sm h-fit">
-          <div className="w-24 h-24 rounded-3xl bg-slate-50 border-2 border-slate-200 overflow-hidden relative flex items-center justify-center text-slate-400 shadow-inner">
+      <form onSubmit={handleSaveProfile} className="space-y-6">
+        {/* Campo de Importar Imagem de Perfil */}
+        <div className="flex items-center space-x-6">
+          <div className="shrink-0">
             {imageUrl ? (
-              <img src={imageUrl} alt="Avatar Preview" className="w-full h-full object-cover" onError={(e) => e.currentTarget.src = ''} />
+              <img className="h-16 w-16 object-cover rounded-full ring-2 ring-indigo-500" src={imageUrl} alt="Avatar" />
             ) : (
-              <User size={40} className="opacity-40" />
+              <div className="h-16 w-16 bg-gray-200 rounded-full flex items-center justify-center text-gray-400 font-bold">
+                {name ? name.substring(0, 2).toUpperCase() : 'U'}
+              </div>
             )}
           </div>
-          <div className="w-full">
-            <h4 className="font-bold text-slate-800 text-base truncate px-2">{name || 'Nome do Usuário'}</h4>
-            <p className="text-xs font-semibold text-blue-600 uppercase tracking-wider mt-0.5 truncate px-2">{role}</p>
-          </div>
+          <label className="block">
+            <span className="sr-only">Escolher foto de perfil</span>
+            <input 
+              type="file" 
+              accept="image/*"
+              onChange={handleImageUpload}
+              disabled={uploading}
+              className="block w-full text-sm text-slate-500
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-indigo-50 file:text-indigo-700
+                hover:file:bg-indigo-100"
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              {uploading ? 'Importando arquivo...' : 'Importe um arquivo PNG ou JPG do seu computador.'}
+            </p>
+          </label>
         </div>
 
-        {/* Painel Direito: Formulário */}
-        <div className="md:col-span-2 p-6 lg:p-8 bg-white border border-slate-100 rounded-[2.5rem] shadow-sm">
-          <form onSubmit={handleSaveProfile} className="space-y-5">
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 mb-2">
-              <Shield size={14} /> Dados Cadastrais
-            </h3>
-
-            {/* Input: Nome */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-600 block">Nome Completo</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ex: Rafael Pereira dos Santos"
-                className="w-full p-3.5 bg-slate-50 rounded-2xl text-sm border border-transparent focus:bg-white focus:border-slate-200 outline-none font-medium text-slate-800 transition-all focus:ring-4 focus:ring-blue-500/5"
-                required
-              />
-            </div>
-
-            {/* Input: Cargo */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-600 block">Função / Cargo</label>
-              <input
-                type="text"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                placeholder="Ex: Supervisor de Faturamento"
-                className="w-full p-3.5 bg-slate-50 rounded-2xl text-sm border border-transparent focus:bg-white focus:border-slate-200 outline-none font-medium text-slate-800 transition-all focus:ring-4 focus:ring-blue-500/5"
-                required
-              />
-            </div>
-
-            {/* 📸 Opção Exclusiva de Importar Foto do Computador (URL removida) */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-slate-600 block">Foto de Perfil</label>
-              
-              <div className="flex items-center gap-4 p-4 bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl transition-all hover:bg-slate-100/70">
-                <input 
-                  type="file" 
-                  ref={fileInputRef} 
-                  onChange={handleFileUpload} 
-                  accept="image/*" 
-                  className="hidden" 
-                />
-
-                <button
-                  type="button"
-                  disabled={isUploading}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-5 py-3 bg-white border border-slate-200 text-slate-700 rounded-xl hover:bg-slate-50 active:scale-95 transition-all flex items-center gap-2 text-xs font-black shadow-sm cursor-pointer disabled:opacity-50 shrink-0"
-                >
-                  {isUploading ? (
-                    <Loader2 size={16} className="animate-spin text-blue-600" />
-                  ) : (
-                    <Upload size={16} className="text-slate-500" />
-                  )}
-                  <span>{isUploading ? 'Enviando arquivo...' : 'Escolher foto do computador'}</span>
-                </button>
-
-                <div className="text-left min-w-0">
-                  <p className="text-[11px] text-slate-500 font-semibold truncate">
-                    {imageUrl ? '✓ Imagem pronta para salvar' : 'Nenhum arquivo selecionado'}
-                  </p>
-                  <p className="text-[9px] text-slate-400 font-medium">PNG, JPG ou GIF de até 5MB.</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Mensagens de Feedback */}
-            {saveSuccess && (
-              <div className="flex items-center gap-2 p-3 bg-emerald-50 rounded-2xl border border-emerald-100 text-emerald-700 text-xs font-bold animate-in fade-in">
-                <CheckCircle2 size={16} className="shrink-0" />
-                <span>Perfil atualizado com sucesso!</span>
-              </div>
-            )}
-
-            {errorMessage && (
-              <div className="flex items-center gap-2 p-3 bg-red-50 rounded-2xl border border-red-100 text-red-700 text-xs font-bold animate-in fade-in">
-                <AlertCircle size={16} className="shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            {/* Botão Salvar */}
-            <div className="pt-2">
-              <button
-                type="submit"
-                disabled={isSaving || isUploading}
-                className="w-full flex items-center justify-center gap-2 transition-all py-3.5 rounded-2xl font-bold text-sm bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/10 active:scale-[0.99] disabled:opacity-50 cursor-pointer"
-              >
-                {isSaving ? <Loader2 className="animate-spin" size={18} /> : 'Salvar Alterações'}
-              </button>
-            </div>
-          </form>
+        {/* Campo Nome de Exibição */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Nome de Exibição</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm text-black"
+          />
         </div>
-      </div>
+
+        {/* Campo de Nível de Acesso (Cargo) */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Função / Nível de Acesso</label>
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 bg-white shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm text-black"
+          >
+            <option value="OPERADOR">Operador</option>
+            <option value="GERENTE">Gerente</option>
+            <option value="ADMINISTRADOR">Administrador</option>
+          </select>
+        </div>
+
+        {/* Botão de Envio */}
+        <div className="flex items-center space-x-4">
+          <button
+            type="submit"
+            disabled={isSaving || uploading}
+            className="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:bg-gray-400"
+          >
+            {isSaving ? 'Salvando...' : 'Salvar Alterações'}
+          </button>
+
+          {saveSuccess && (
+            <span className="text-sm text-green-600 font-medium">Configurações salvas com sucesso!</span>
+          )}
+        </div>
+      </form>
     </div>
   );
 }
