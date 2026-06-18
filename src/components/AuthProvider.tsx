@@ -29,15 +29,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(currentUser);
     
     if (currentUser) {
-      // Busca a função/cargo direto do perfil para garantir consistência global
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', currentUser.id)
-        .single()
-        .catch(() => ({ data: null }));
+      let userRole = 'OPERADOR';
 
-      const userRole = profile?.role || currentUser.user_metadata?.role || 'OPERADOR';
+      try {
+        // Busca o cargo direto da tabela pública de forma segura
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', currentUser.id)
+          .single();
+
+        if (profile?.role) {
+          userRole = profile.role;
+        } else if (currentUser.user_metadata?.role) {
+          userRole = currentUser.user_metadata.role;
+        }
+      } catch (err) {
+        console.warn('Erro ao buscar profile, usando metadados do auth:', err);
+        if (currentUser.user_metadata?.role) {
+          userRole = currentUser.user_metadata.role;
+        }
+      }
+
       setRole(userRole);
     } else {
       setRole(null);
@@ -46,21 +59,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    // Carrega a sessão inicial
-    supabase.auth.getUser().then(({ data: { user: initialUser } }) => {
-      handleUserSession(initialUser);
+    // Verifica a sessão atual ao carregar o componente
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      handleUserSession(session?.user ?? null);
     });
 
-    // ⚡ A CHAVE DA SOLUÇÃO: Escuta alterações na sessão (USER_UPDATED) em tempo real
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT') {
-        setUser(null);
-        setRole(null);
-        setLoading(false);
-      } else if (session?.user) {
-        // Se o usuário atualizou o perfil (USER_UPDATED) ou mudou o estado, renova o Context global
-        await handleUserSession(session.user);
-      }
+    // Escuta mudanças de estado de autenticação (Login/Logout/Update)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      handleUserSession(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
@@ -69,9 +75,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signOut = async () => {
     setLoading(true);
     await supabase.auth.signOut();
+    setUser(null);
+    setRole(null);
+    setLoading(false);
   };
 
-  const isAdmin = role?.toUpperCase() === 'ADMINISTRADOR' || role?.toUpperCase() === 'ADMIN';
+  const isAdmin = role === 'ADMINISTRADOR';
 
   return (
     <AuthContext.Provider value={{ user, role, isAdmin, loading, signOut }}>
