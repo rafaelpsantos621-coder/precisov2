@@ -10,6 +10,7 @@ type AuthContextType = {
   isAdmin: boolean;
   loading: boolean;
   signOut: () => Promise<void>;
+  signInWithEmail: (email: string, password: string) => Promise<void>; // Adicionado de volta ao tipo
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -18,6 +19,7 @@ const AuthContext = createContext<AuthContextType>({
   isAdmin: false,
   loading: true,
   signOut: async () => {},
+  signInWithEmail: async () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -32,7 +34,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let userRole = 'OPERADOR';
 
       try {
-        // Busca o cargo direto da tabela pública de forma segura
         const { data: profile } = await supabase
           .from('profiles')
           .select('role')
@@ -59,18 +60,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    // Verifica a sessão atual ao carregar o componente
     supabase.auth.getSession().then(({ data: { session } }) => {
       handleUserSession(session?.user ?? null);
     });
 
-    // Escuta mudanças de estado de autenticação (Login/Logout/Update)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       handleUserSession(session?.user ?? null);
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // Função de autenticação exigida pela LoginPage
+  const signInWithEmail = async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  };
 
   const signOut = async () => {
     setLoading(true);
@@ -83,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = role === 'ADMINISTRADOR';
 
   return (
-    <AuthContext.Provider value={{ user, role, isAdmin, loading, signOut }}>
+    <AuthContext.Provider value={{ user, role, isAdmin, loading, signOut, signInWithEmail }}>
       {children}
     </AuthContext.Provider>
   );
