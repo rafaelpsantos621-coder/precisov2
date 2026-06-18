@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { User } from '@supabase/supabase-js';
+import { User, AuthError } from '@supabase/supabase-js';
 
 type AuthContextType = {
   user: User | null;
@@ -10,7 +10,7 @@ type AuthContextType = {
   isAdmin: boolean;
   loading: boolean;
   signOut: () => Promise<void>;
-  signInWithEmail: (email: string, password: string) => Promise<void>; // Adicionado de volta ao tipo
+  signInWithEmail: (email: string, password: string) => Promise<{ error: AuthError | null }>; // Ajustado o retorno no tipo
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -19,7 +19,7 @@ const AuthContext = createContext<AuthContextType>({
   isAdmin: false,
   loading: true,
   signOut: async () => {},
-  signInWithEmail: async () => {},
+  signInWithEmail: async () => ({ error: null }),
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -71,10 +71,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Função de autenticação exigida pela LoginPage
+  // Modificado aqui: Retorna diretamente o objeto de erro para a LoginPage ler corretamente
   const signInWithEmail = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    return { error };
   };
 
   const signOut = async () => {
