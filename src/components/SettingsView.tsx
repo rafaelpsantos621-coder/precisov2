@@ -77,7 +77,10 @@ export default function SettingsView() {
       setImageUrl(publicUrl);
     } catch (error: any) {
       alert(error.message || 'Erro ao importar imagem.');
-    } military {
+    ```tsx
+} finally {
+  setUploading(false);
+}
       setUploading(false);
     }
   };
