@@ -6,12 +6,20 @@ import { supabase } from '@/lib/supabase';
 
 export default function SettingsView() {
   const { user } = useAuth();
+  
+  // Estados do Perfil
   const [name, setName] = useState('');
   const [role, setRole] = useState('OPERADOR');
   const [imageUrl, setImageUrl] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [uploading, setUploading] = useState(false);
+
+  // Estados da Senha
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
 
   useEffect(() => {
     async function loadProfile() {
@@ -20,7 +28,6 @@ export default function SettingsView() {
       let profileData = null;
 
       try {
-        // Correção do erro da imagem_8349e5.png: consulta limpa sem .catch() encadeado
         const { data, error } = await supabase
           .from('profiles')
           .select('display_name, role, image_url')
@@ -44,7 +51,7 @@ export default function SettingsView() {
     loadProfile();
   }, [user]);
 
-  // Função para importar e fazer upload da imagem do perfil localmente
+  // Função para fazer upload da imagem do perfil
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     try {
       setUploading(true);
@@ -57,14 +64,12 @@ export default function SettingsView() {
       const fileName = `${user?.id}-${Math.random()}.${fileExt}`;
       const filePath = `avatars/${fileName}`;
 
-      // Envia o arquivo para o bucket do Supabase Storage
       const { error: uploadError } = await supabase.storage
         .from('profiles')
         .upload(filePath, file, { upsert: true });
 
       if (uploadError) throw uploadError;
 
-      // Pega a URL pública da imagem recém-importada
       const { data: { publicUrl } } = supabase.storage
         .from('profiles')
         .getPublicUrl(filePath);
@@ -72,11 +77,12 @@ export default function SettingsView() {
       setImageUrl(publicUrl);
     } catch (error: any) {
       alert(error.message || 'Erro ao importar imagem.');
-    } finally {
+    } military {
       setUploading(false);
     }
   };
 
+  // Salvar dados do Perfil
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
@@ -85,7 +91,6 @@ export default function SettingsView() {
     try {
       if (!user) return;
 
-      // 1. Atualiza os metadados de Autenticação
       const { error: authError } = await supabase.auth.updateUser({
         data: { 
           name: name,
@@ -95,7 +100,6 @@ export default function SettingsView() {
       });
       if (authError) throw authError;
 
-      // 2. Atualiza a tabela pública 'profiles'
       const { error: profileError } = await supabase
         .from('profiles')
         .upsert({
@@ -117,15 +121,51 @@ export default function SettingsView() {
     }
   };
 
+  // Alterar a senha de acesso
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsChangingPassword(false);
+    setPasswordSuccess(false);
+
+    if (newPassword !== confirmPassword) {
+      alert('As senhas não coincidem!');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      alert('A nova senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+
+    setIsChangingPassword(true);
+
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) throw error;
+
+      setPasswordSuccess(true);
+      setNewPassword('');
+      setConfirmPassword('');
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'Erro ao atualizar a senha.');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
   return (
     <div className="p-6 max-w-2xl mx-auto bg-white rounded-xl shadow-md space-y-6">
+      {/* SEÇÃO 1: DADOS DO PERFIL */}
       <div>
         <h2 className="text-2xl font-bold text-gray-900">Configurações do Perfil</h2>
         <p className="text-sm text-gray-500">Gerencie suas informações de exibição e imagem de avatar.</p>
       </div>
 
       <form onSubmit={handleSaveProfile} className="space-y-6">
-        {/* Campo de Importar Imagem de Perfil */}
         <div className="flex items-center space-x-6">
           <div className="shrink-0">
             {imageUrl ? (
@@ -156,7 +196,6 @@ export default function SettingsView() {
           </label>
         </div>
 
-        {/* Campo Nome de Exibição */}
         <div>
           <label className="block text-sm font-medium text-gray-700">Nome de Exibição</label>
           <input
@@ -168,7 +207,6 @@ export default function SettingsView() {
           />
         </div>
 
-        {/* Campo de Nível de Acesso (Cargo) */}
         <div>
           <label className="block text-sm font-medium text-gray-700">Função / Nível de Acesso</label>
           <select
@@ -182,7 +220,6 @@ export default function SettingsView() {
           </select>
         </div>
 
-        {/* Botão de Envio */}
         <div className="flex items-center space-x-4">
           <button
             type="submit"
@@ -194,6 +231,53 @@ export default function SettingsView() {
 
           {saveSuccess && (
             <span className="text-sm text-green-600 font-medium">Configurações salvas com sucesso!</span>
+          )}
+        </div>
+      </form>
+
+      {/* SEÇÃO 2: SEGURANÇA / ALTERAR SENHA */}
+      <hr className="my-8 border-gray-200" />
+
+      <div>
+        <h3 className="text-xl font-bold text-gray-900">Segurança da Conta</h3>
+        <p className="text-sm text-gray-500">Atualize sua senha de acesso ao sistema.</p>
+      </div>
+
+      <form onSubmit={handleChangePassword} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Nova Senha</label>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            required
+            placeholder="Mínimo de 6 caracteres"
+            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm text-black"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Confirme a Nova Senha</label>
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm text-black"
+          />
+        </div>
+
+        <div className="flex items-center space-x-4">
+          <button
+            type="submit"
+            disabled={isChangingPassword}
+            className="inline-flex justify-center rounded-md border border-transparent bg-red-600 py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 disabled:bg-gray-400"
+          >
+            {isChangingPassword ? 'Atualizando...' : 'Atualizar Senha'}
+          </button>
+
+          {passwordSuccess && (
+            <span className="text-sm text-green-600 font-medium">Sua senha foi alterada com sucesso!</span>
           )}
         </div>
       </form>
